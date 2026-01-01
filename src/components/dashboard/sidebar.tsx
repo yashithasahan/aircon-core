@@ -22,14 +22,14 @@ const sidebarItems = [
         icon: LayoutDashboard,
     },
     {
+        title: "Bookings",
+        href: "/dashboard/bookings",
+        icon: Plane,
+    },
+    {
         title: "Passengers",
         href: "/dashboard/passengers",
         icon: Users,
-    },
-    {
-        title: "Bookings",
-        href: "/dashboard/bookings", // Placeholder
-        icon: Plane,
     },
     {
         title: "Payments",

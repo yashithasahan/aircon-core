@@ -1,16 +1,26 @@
-export interface Passenger {
+export interface Booking {
     id: string;
-    entryDate: string; // The "Date" column
-    paxName: string;
+    created_at: string;
+    pax_name: string;
     pnr: string;
-    ticketNumber: string;
-    departureDate: string;
-    returnDate: string; // Can be a date or "ONEWAY"
-    airline: string; // e.g. "FZ", "QR"
-    fare: number; // Buying price
-    sellingPrice: number;
+    ticket_number?: string;
+    airline?: string;
+    entry_date: string;
+    departure_date: string;
+    return_date?: string;
+    fare: number;
+    selling_price: number;
     profit: number;
-    paymentStatus?: string; // "DEPOSIT", "REFUND", "PAID" etc.
+    payment_status: string;
+    passenger_id?: string; // FK
 }
 
-export type PassengerFormData = Omit<Passenger, "id" | "profit">;
+export interface Passenger {
+    id: string;
+    created_at: string;
+    name: string;
+    passport_number?: string;
+    contact_info?: string;
+}
+
+export type BookingFormData = Omit<Booking, "id" | "created_at" | "profit">;

@@ -1,13 +1,17 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, DollarSign, Plane, TrendingUp } from "lucide-react";
+import { getDashboardStats, getRecentSales } from "./actions";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+    const stats = await getDashboardStats();
+    const recentSales = await getRecentSales();
+
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center justify-between">
                 <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Dashboard</h2>
                 <div className="text-sm text-slate-500">
-                    Last updated: Today, 12:00 PM
+                    Real-time Overview
                 </div>
             </div>
 
@@ -21,87 +25,92 @@ export default function DashboardPage() {
                         <DollarSign className="h-4 w-4 text-blue-100" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">€13,206.11</div>
+                        <div className="text-2xl font-bold">€{stats.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                         <p className="text-xs text-blue-100/80">
-                            +20.1% from last month
+                            Lifetime Sales
                         </p>
                     </CardContent>
                 </Card>
 
-                <Card className="border-0 shadow-sm border-slate-200">
+                <Card className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500">
-                            Passenegers
+                        <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                            Total Bookings
                         </CardTitle>
-                        <Users className="h-4 w-4 text-slate-500" />
+                        <Plane className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-slate-900">450</div>
-                        <p className="text-xs text-slate-500">
-                            +12 new this week
+                        <div className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalBookings}</div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Confirmed flights
                         </p>
                     </CardContent>
                 </Card>
 
-                <Card className="border-0 shadow-sm border-slate-200">
+                <Card className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500">
-                            FZ Balance (Profit)
+                        <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                            Net Profit
                         </CardTitle>
                         <TrendingUp className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-emerald-600">€1,610.03</div>
-                        <p className="text-xs text-emerald-600/80">
-                            Net Profit Margin: 12%
+                        <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">€{stats.totalProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
+                            Margin: {stats.averageMargin.toFixed(1)}%
                         </p>
                     </CardContent>
                 </Card>
 
-                <Card className="border-0 shadow-sm border-slate-200">
+                <Card className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500">
-                            Total Flights
+                        <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                            Passengers
                         </CardTitle>
-                        <Plane className="h-4 w-4 text-slate-500" />
+                        <Users className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-slate-900">12</div>
-                        <p className="text-xs text-slate-500">
-                            Active bookings
+                        {/* Assuming 1 pax per booking for now, or sum if we had a pax count column */}
+                        <div className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalBookings}</div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Total passengers
                         </p>
                     </CardContent>
                 </Card>
             </div>
 
-            {/* Recent Activity / Placeholder Graph */}
+            {/* Recent Activity */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <Card className="col-span-4 shadow-sm border-slate-200">
+                <Card className="col-span-4 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
                     <CardHeader>
                         <CardTitle>Overview</CardTitle>
                     </CardHeader>
                     <CardContent className="pl-2">
                         <div className="h-[200px] flex items-center justify-center text-slate-400">
-                            [Chart Placeholder - Sales over time]
+                            <p className="text-sm">Chart visualization coming in next update...</p>
                         </div>
                     </CardContent>
                 </Card>
-                <Card className="col-span-3 shadow-sm border-slate-200">
+                <Card className="col-span-3 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
                     <CardHeader>
                         <CardTitle>Recent Sales</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-4">
-                            {/* Mock List */}
-                            {[1, 2, 3].map(i => (
-                                <div key={i} className="flex items-center">
+                            {recentSales.map((sale) => (
+                                <div key={sale.id} className="flex items-center">
                                     <div className="space-y-1">
-                                        <p className="text-sm font-medium leading-none">Passenger Name</p>
-                                        <p className="text-xs text-slate-500">Tkt: 157-209292...</p>
+                                        <p className="text-sm font-medium leading-none truncate max-w-[150px]">{sale.pax_name}</p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">{sale.pnr}</p>
                                     </div>
-                                    <div className="ml-auto font-medium">+€511.38</div>
+                                    <div className="ml-auto font-medium text-emerald-600 dark:text-emerald-400">
+                                        +€{sale.selling_price.toFixed(2)}
+                                    </div>
                                 </div>
                             ))}
+                            {recentSales.length === 0 && (
+                                <p className="text-sm text-slate-500">No recent sales found.</p>
+                            )}
                         </div>
                     </CardContent>
                 </Card>
@@ -109,3 +118,4 @@ export default function DashboardPage() {
         </div>
     );
 }
+
