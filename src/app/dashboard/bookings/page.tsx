@@ -27,7 +27,7 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { DeleteButton } from "@/components/ui/delete-button";
-import { getBookings, deleteBooking } from "./actions";
+import { getBookings, deleteBooking, getAgents, getBookingTypes } from "./actions";
 
 import { Booking } from "@/types";
 
@@ -36,6 +36,8 @@ import { getPassengers } from "@/app/dashboard/passengers/actions";
 export default async function BookingsPage() {
     const bookings = await getBookings() as Booking[];
     const passengers = await getPassengers();
+    const agents = await getAgents();
+    const bookingTypes = await getBookingTypes();
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -59,7 +61,11 @@ export default async function BookingsPage() {
                                     Enter the passenger and flight details below.
                                 </DialogDescription>
                             </DialogHeader>
-                            <BookingForm passengers={passengers} />
+                            <BookingForm
+                                passengers={passengers}
+                                agents={agents}
+                                bookingTypes={bookingTypes}
+                            />
                         </DialogContent>
                     </Dialog>
                 </div>

@@ -19,21 +19,29 @@ import { createPassenger } from "@/app/dashboard/passengers/actions"
 export function CreatePassengerDialog() {
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
-    const [name, setName] = useState("")
+    const [title, setTitle] = useState("")
+    const [surname, setSurname] = useState("")
+    const [firstName, setFirstName] = useState("")
+    const [contact, setContact] = useState("")
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault()
-        if (!name) return
+        if (!surname || !firstName) return
 
         setLoading(true)
         const formData = new FormData()
-        formData.append("name", name)
+        formData.append("title", title)
+        formData.append("surname", surname)
+        formData.append("first_name", firstName)
+        formData.append("contact_info", contact)
 
         try {
             await createPassenger(formData)
             setOpen(false)
-            setName("")
-            // Page revalidates automatically via server action
+            setTitle("")
+            setSurname("")
+            setFirstName("")
+            setContact("")
         } catch (error) {
             console.error(error)
             alert("Failed to create passenger")
@@ -58,18 +66,47 @@ export function CreatePassengerDialog() {
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="name" className="text-right">
-                            Name
-                        </Label>
-                        <Input
-                            id="name"
-                            value={name}
-                            onChange={(e) => setName(e.target.value.toUpperCase())}
-                            placeholder="SURNAME/NAME"
-                            className="col-span-3"
-                            required
-                        />
+                    <div className="grid gap-2">
+                        <div className="grid grid-cols-4 gap-2">
+                            <div className="space-y-2 col-span-1">
+                                <Label htmlFor="title">Title</Label>
+                                <Input
+                                    id="title"
+                                    placeholder="MR"
+                                    value={title}
+                                    onChange={(e) => setTitle(e.target.value.toUpperCase())}
+                                />
+                            </div>
+                            <div className="space-y-2 col-span-3">
+                                <Label htmlFor="surname">Surname</Label>
+                                <Input
+                                    id="surname"
+                                    placeholder="DOE"
+                                    value={surname}
+                                    onChange={(e) => setSurname(e.target.value.toUpperCase())}
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="firstName">First Name</Label>
+                            <Input
+                                id="firstName"
+                                placeholder="JOHN"
+                                value={firstName}
+                                onChange={(e) => setFirstName(e.target.value.toUpperCase())}
+                                required
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="contact">Email / Contact</Label>
+                            <Input
+                                id="contact"
+                                placeholder="email@example.com"
+                                value={contact}
+                                onChange={(e) => setContact(e.target.value)}
+                            />
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button type="submit" disabled={loading}>

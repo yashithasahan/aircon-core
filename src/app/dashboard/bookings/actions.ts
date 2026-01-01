@@ -8,14 +8,12 @@ import { BookingFormData } from '@/types'
 export async function createBooking(formData: BookingFormData) {
     const supabase = await createClient()
 
-    // Basic validation or transformation could happen here
-    // e.g., ensure dates are valid
-
     const { error } = await supabase
         .from('bookings')
         .insert([
             {
-                pax_name: formData.pax_name,
+                pax_name: formData.pax_name, // This is still useful as a snapshot
+                passenger_id: formData.passenger_id, // Ensure we link the passenger
                 pnr: formData.pnr,
                 ticket_number: formData.ticket_number,
                 airline: formData.airline,
@@ -24,7 +22,13 @@ export async function createBooking(formData: BookingFormData) {
                 return_date: formData.return_date || null,
                 fare: formData.fare,
                 selling_price: formData.selling_price,
-                payment_status: formData.payment_status || 'PENDING'
+                payment_status: formData.payment_status || 'PENDING',
+
+                // New Fields
+                origin: formData.origin,
+                destination: formData.destination,
+                agent_id: formData.agent_id,
+                booking_type_id: formData.booking_type_id
             }
         ])
 
@@ -38,7 +42,14 @@ export async function createBooking(formData: BookingFormData) {
 
 export async function getBookings() {
     const supabase = await createClient()
-    const { data, error } = await supabase.from('bookings').select('*').order('created_at', { ascending: false })
+    const { data, error } = await supabase
+        .from('bookings')
+        .select(`
+            *,
+            agent:agents(name),
+            booking_type:booking_types(name)
+        `)
+        .order('created_at', { ascending: false })
 
     if (error) {
         console.error('Fetch error:', error)
@@ -61,4 +72,36 @@ export async function deleteBooking(id: string) {
     }
 
     revalidatePath('/dashboard/bookings')
+}
+
+// --- Agents ---
+
+export async function getAgents() {
+    const supabase = await createClient()
+    const { data, error } = await supabase.from('agents').select('*').order('name')
+    if (error) return []
+    return data
+}
+
+export async function createAgent(name: string) {
+    const supabase = await createClient()
+    const { data, error } = await supabase.from('agents').insert([{ name }]).select().single()
+    if (error) return { error: error.message }
+    return { data }
+}
+
+// --- Booking Types ---
+
+export async function getBookingTypes() {
+    const supabase = await createClient()
+    const { data, error } = await supabase.from('booking_types').select('*').order('name')
+    if (error) return []
+    return data
+}
+
+export async function createBookingType(name: string) {
+    const supabase = await createClient()
+    const { data, error } = await supabase.from('booking_types').insert([{ name }]).select().single()
+    if (error) return { error: error.message }
+    return { data }
 }

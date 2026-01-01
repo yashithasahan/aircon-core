@@ -9,7 +9,7 @@ export async function getPassengers() {
     const { data, error } = await supabase
         .from('passengers')
         .select('*')
-        .order('name', { ascending: true })
+        .order('surname', { ascending: true })
 
     if (error) {
         console.error('Error fetching passengers:', error)
@@ -22,15 +22,27 @@ export async function getPassengers() {
 export async function createPassenger(formData: FormData) {
     const supabase = await createClient()
 
-    const name = formData.get('name') as string
+    const title = formData.get('title') as string
+    const surname = formData.get('surname') as string
+    const first_name = formData.get('first_name') as string
     const passport_number = formData.get('passport_number') as string
     const contact_info = formData.get('contact_info') as string
 
-    if (!name) return { error: "Name is required" }
+    // Construct full name for legacy support or display
+    const name = `${title} ${surname} ${first_name}`.trim()
+
+    if (!surname || !first_name) return { error: "Surname and First Name are required" }
 
     const { data, error } = await supabase
         .from('passengers')
-        .insert([{ name, passport_number, contact_info }])
+        .insert([{
+            title,
+            surname,
+            first_name,
+            name,
+            passport_number,
+            contact_info
+        }])
         .select()
         .single()
 

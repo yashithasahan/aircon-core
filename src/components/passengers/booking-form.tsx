@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { createBooking } from "@/app/dashboard/bookings/actions"
+import { createBooking, createAgent, createBookingType } from "@/app/dashboard/bookings/actions"
 import { createPassenger } from "@/app/dashboard/passengers/actions"
-import { BookingFormData, Passenger } from "@/types"
+import { BookingFormData, Passenger, Agent, BookingType } from "@/types"
 import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -30,44 +30,99 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog"
 
-export function BookingForm({ passengers }: { passengers: Passenger[] }) {
+export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { passengers: Passenger[], agents?: Agent[], bookingTypes?: BookingType[] }) {
     const [loading, setLoading] = useState(false)
     const [openCombobox, setOpenCombobox] = useState(false)
     const [selectedPaxId, setSelectedPaxId] = useState("")
 
-    // New Passenger State
-    const [newPaxOpen, setNewPaxOpen] = useState(false)
-    const [newPaxName, setNewPaxName] = useState("")
+    // Agent & Booking Type State
+    const [openAgentCombobox, setOpenAgentCombobox] = useState(false)
+    const [selectedAgentId, setSelectedAgentId] = useState("")
+    const [openTypeCombobox, setOpenTypeCombobox] = useState(false)
+    const [selectedTypeId, setSelectedTypeId] = useState("")
 
-    async function handleCreatePassenger() {
-        if (!newPaxName) return;
-        const formData = new FormData();
-        formData.append("name", newPaxName);
+    // New create states
+    const [newAgentOpen, setNewAgentOpen] = useState(false)
+    const [newAgentName, setNewAgentName] = useState("")
+    const [newTypeOpen, setNewTypeOpen] = useState(false)
+    const [newTypeName, setNewTypeName] = useState("")
 
-        // Ideally handled by server action completely
-        const res = await createPassenger(formData);
+    // Passenger Fields State
+    const [paxTitle, setPaxTitle] = useState("")
+    const [paxSurname, setPaxSurname] = useState("")
+    const [paxFirstName, setPaxFirstName] = useState("")
+    const [paxContact, setPaxContact] = useState("")
+
+    // Auto-fill when passenger selected
+    useEffect(() => {
+        if (selectedPaxId) {
+            const pax = passengers.find(p => p.id === selectedPaxId)
+            if (pax) {
+                setPaxTitle(pax.title || "")
+                setPaxSurname(pax.surname || "")
+                setPaxFirstName(pax.first_name || "")
+                setPaxContact(pax.contact_info || "")
+            }
+        }
+    }, [selectedPaxId, passengers])
+
+    async function handleCreateAgent() {
+        if (!newAgentName) return;
+        const res = await createAgent(newAgentName);
         if (res?.data) {
-            // Optimistic Update: Add to local list immediately and select
-            // We would need to update the local list, but simpler to reload or just mock it for now
-            setNewPaxOpen(false);
-            setNewPaxName("");
+            setNewAgentOpen(false);
+            setNewAgentName("");
+            window.location.reload();
         }
     }
 
+    async function handleCreateBookingType() {
+        if (!newTypeName) return;
+        const res = await createBookingType(newTypeName);
+        if (res?.data) {
+            setNewTypeOpen(false);
+            setNewTypeName("");
+            window.location.reload();
+        }
+    }
 
     async function handleSubmit(formData: FormData) {
-        if (!selectedPaxId) {
-            alert("Please select a passenger");
-            return;
-        }
-
         setLoading(true)
 
-        const selectedPax = passengers.find(p => p.id === selectedPaxId);
+        let finalPaxId = selectedPaxId
+
+        // If no passenger selected, try to create one from inline fields
+        if (!finalPaxId) {
+            if (paxSurname && paxFirstName) {
+                const newPaxData = new FormData()
+                newPaxData.append("title", paxTitle)
+                newPaxData.append("surname", paxSurname)
+                newPaxData.append("first_name", paxFirstName)
+                newPaxData.append("contact_info", paxContact)
+
+                const res = await createPassenger(newPaxData)
+                if (res?.data) {
+                    finalPaxId = res.data.id
+                } else {
+                    alert("Failed to create new passenger. Please check fields.")
+                    setLoading(false)
+                    return
+                }
+            } else {
+                alert("Please select a passenger or fill in Surname and First Name")
+                setLoading(false)
+                return
+            }
+        }
+
+        const selectedPax = passengers.find(p => p.id === finalPaxId);
+        // If we just created one, we might not have it in 'passengers' array yet, so name might be fallback
+        const derivedName = selectedPax ? selectedPax.name : `${paxTitle} ${paxSurname} ${paxFirstName}`.trim()
 
         const rawData: BookingFormData = {
             entry_date: formData.get("entry_date") as string,
-            pax_name: selectedPax ? selectedPax.name : "Unknown", // Fallback, but we use ID mostly
+            pax_name: derivedName,
+            passenger_id: finalPaxId,
             pnr: formData.get("pnr") as string,
             ticket_number: formData.get("ticket_number") as string,
             departure_date: formData.get("departure_date") as string,
@@ -76,7 +131,11 @@ export function BookingForm({ passengers }: { passengers: Passenger[] }) {
             fare: Number(formData.get("fare")),
             selling_price: Number(formData.get("selling_price")),
             payment_status: "PENDING",
-            passenger_id: selectedPaxId
+
+            origin: formData.get("origin") as string,
+            destination: formData.get("destination") as string,
+            agent_id: selectedAgentId,
+            booking_type_id: selectedTypeId,
         }
 
         try {
@@ -103,9 +162,10 @@ export function BookingForm({ passengers }: { passengers: Passenger[] }) {
                 </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-                <Label>Passenger</Label>
-                <div className="flex gap-2">
+            {/* Passenger Section */}
+            <div className="p-4 border rounded-lg space-y-4 bg-slate-50 dark:bg-slate-900/50">
+                <div className="flex flex-col gap-2">
+                    <Label>Select Existing Passenger (Optional)</Label>
                     <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
                         <PopoverTrigger asChild>
                             <Button
@@ -116,7 +176,7 @@ export function BookingForm({ passengers }: { passengers: Passenger[] }) {
                             >
                                 {selectedPaxId
                                     ? passengers.find((p) => p.id === selectedPaxId)?.name
-                                    : "Select passenger..."}
+                                    : "Select passenger to auto-fill..."}
                                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                             </Button>
                         </PopoverTrigger>
@@ -131,7 +191,15 @@ export function BookingForm({ passengers }: { passengers: Passenger[] }) {
                                                 key={p.id}
                                                 value={p.name}
                                                 onSelect={() => {
-                                                    setSelectedPaxId(p.id === selectedPaxId ? "" : p.id)
+                                                    if (p.id === selectedPaxId) {
+                                                        setSelectedPaxId("")
+                                                        setPaxTitle("")
+                                                        setPaxSurname("")
+                                                        setPaxFirstName("")
+                                                        setPaxContact("")
+                                                    } else {
+                                                        setSelectedPaxId(p.id)
+                                                    }
                                                     setOpenCombobox(false)
                                                 }}
                                             >
@@ -149,30 +217,159 @@ export function BookingForm({ passengers }: { passengers: Passenger[] }) {
                             </Command>
                         </PopoverContent>
                     </Popover>
+                </div>
 
-                    <Dialog open={newPaxOpen} onOpenChange={setNewPaxOpen}>
-                        <DialogTrigger asChild>
-                            <Button variant="secondary" size="icon" type="button">
-                                <Plus className="h-4 w-4" />
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                            <DialogHeader>
-                                <DialogTitle>Add New Passenger</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4 py-4">
-                                <div className="space-y-2">
-                                    <Label>Name</Label>
-                                    <Input
-                                        placeholder="SURNAME/NAME"
-                                        value={newPaxName}
-                                        onChange={(e) => setNewPaxName(e.target.value)}
-                                    />
+                <div className="grid grid-cols-4 gap-2">
+                    <div className="space-y-2 col-span-1">
+                        <Label>Title</Label>
+                        <Input
+                            placeholder="MR"
+                            value={paxTitle}
+                            onChange={(e) => {
+                                setPaxTitle(e.target.value.toUpperCase())
+                                if (selectedPaxId) setSelectedPaxId("")
+                            }}
+                        />
+                    </div>
+                    <div className="space-y-2 col-span-3">
+                        <Label>Surname</Label>
+                        <Input
+                            placeholder="DOE"
+                            value={paxSurname}
+                            onChange={(e) => {
+                                setPaxSurname(e.target.value.toUpperCase())
+                                if (selectedPaxId) setSelectedPaxId("")
+                            }}
+                        />
+                    </div>
+                </div>
+                <div className="space-y-2">
+                    <Label>First Name</Label>
+                    <Input
+                        placeholder="JOHN"
+                        value={paxFirstName}
+                        onChange={(e) => {
+                            setPaxFirstName(e.target.value.toUpperCase())
+                            if (selectedPaxId) setSelectedPaxId("")
+                        }}
+                    />
+                </div>
+                <div className="space-y-2">
+                    <Label>Email / Contact</Label>
+                    <Input
+                        placeholder="email@example.com"
+                        value={paxContact}
+                        name="contact_info"
+                        onChange={(e) => {
+                            setPaxContact(e.target.value)
+                            if (selectedPaxId) setSelectedPaxId("")
+                        }}
+                    />
+                </div>
+            </div>
+
+            {/* Agent and Booking Type */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                    <Label>Agent</Label>
+                    <div className="flex gap-2">
+                        <Popover open={openAgentCombobox} onOpenChange={setOpenAgentCombobox}>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" role="combobox" aria-expanded={openAgentCombobox} className="w-full justify-between">
+                                    {selectedAgentId ? agents.find((a) => a.id === selectedAgentId)?.name : "Select agent..."}
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[200px] p-0">
+                                <Command>
+                                    <CommandInput placeholder="Search agent..." />
+                                    <CommandList>
+                                        <CommandEmpty>No agent found.</CommandEmpty>
+                                        <CommandGroup>
+                                            {agents.map((a) => (
+                                                <CommandItem key={a.id} value={a.name} onSelect={() => { setSelectedAgentId(a.id === selectedAgentId ? "" : a.id); setOpenAgentCombobox(false) }}>
+                                                    <Check className={cn("mr-2 h-4 w-4", selectedAgentId === a.id ? "opacity-100" : "opacity-0")} />
+                                                    {a.name}
+                                                </CommandItem>
+                                            ))}
+                                        </CommandGroup>
+                                    </CommandList>
+                                </Command>
+                            </PopoverContent>
+                        </Popover>
+                        <Dialog open={newAgentOpen} onOpenChange={setNewAgentOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader><DialogTitle>Add New Agent</DialogTitle></DialogHeader>
+                                <div className="space-y-4 py-4">
+                                    <div className="space-y-2">
+                                        <Label>Agent Name</Label>
+                                        <Input value={newAgentName} onChange={(e) => setNewAgentName(e.target.value)} />
+                                    </div>
+                                    <Button onClick={handleCreateAgent} type="button" className="w-full">Create</Button>
                                 </div>
-                                <Button onClick={handleCreatePassenger} type="button" className="w-full">Create</Button>
-                            </div>
-                        </DialogContent>
-                    </Dialog>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    <Label>Booking Type</Label>
+                    <div className="flex gap-2">
+                        <Popover open={openTypeCombobox} onOpenChange={setOpenTypeCombobox}>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" role="combobox" aria-expanded={openTypeCombobox} className="w-full justify-between">
+                                    {selectedTypeId ? bookingTypes.find((t) => t.id === selectedTypeId)?.name : "Select type..."}
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[200px] p-0">
+                                <Command>
+                                    <CommandInput placeholder="Search type..." />
+                                    <CommandList>
+                                        <CommandEmpty>No type found.</CommandEmpty>
+                                        <CommandGroup>
+                                            {bookingTypes.map((t) => (
+                                                <CommandItem key={t.id} value={t.name} onSelect={() => { setSelectedTypeId(t.id === selectedTypeId ? "" : t.id); setOpenTypeCombobox(false) }}>
+                                                    <Check className={cn("mr-2 h-4 w-4", selectedTypeId === t.id ? "opacity-100" : "opacity-0")} />
+                                                    {t.name}
+                                                </CommandItem>
+                                            ))}
+                                        </CommandGroup>
+                                    </CommandList>
+                                </Command>
+                            </PopoverContent>
+                        </Popover>
+                        <Dialog open={newTypeOpen} onOpenChange={setNewTypeOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader><DialogTitle>Add Booking Type</DialogTitle></DialogHeader>
+                                <div className="space-y-4 py-4">
+                                    <div className="space-y-2">
+                                        <Label>Type Name</Label>
+                                        <Input value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} />
+                                    </div>
+                                    <Button onClick={handleCreateBookingType} type="button" className="w-full">Create</Button>
+                                </div>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
+                </div>
+            </div>
+
+            {/* Origin & Destination */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                    <Label htmlFor="origin">From (Origin)</Label>
+                    <Input id="origin" name="origin" placeholder="DXB" />
+                </div>
+                <div className="flex flex-col gap-2">
+                    <Label htmlFor="destination">To (Destination)</Label>
+                    <Input id="destination" name="destination" placeholder="LHR" />
                 </div>
             </div>
 
