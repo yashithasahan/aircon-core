@@ -99,6 +99,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                 newPaxData.append("surname", paxSurname)
                 newPaxData.append("first_name", paxFirstName)
                 newPaxData.append("contact_info", paxContact)
+                newPaxData.append("phone_number", formData.get("phone_number") as string)
 
                 const res = await createPassenger(newPaxData)
                 if (res?.data) {
@@ -130,7 +131,13 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
             airline: formData.get("airline") as string,
             fare: Number(formData.get("fare")),
             selling_price: Number(formData.get("selling_price")),
-            payment_status: "PENDING",
+            payment_status: "PENDING", // Keep default or specific logic
+
+            // New Mapped Fields
+            ticket_status: formData.get("ticket_status") as 'PENDING' | 'ISSUED',
+            ticket_issued_date: formData.get("ticket_issued_date") as string,
+            advance_payment: Number(formData.get("advance_payment") || 0),
+            platform: formData.get("platform") as string,
 
             origin: formData.get("origin") as string,
             destination: formData.get("destination") as string,
@@ -157,9 +164,28 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                     <Input id="entry_date" name="entry_date" type="date" required defaultValue={new Date().toISOString().split('T')[0]} />
                 </div>
                 <div className="flex flex-col gap-2">
-                    <Label htmlFor="airline">Airline</Label>
-                    <Input id="airline" name="airline" placeholder="EK" required />
+                    <Label htmlFor="ticket_status">Ticket Status</Label>
+                    <select name="ticket_status" id="ticket_status" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                        <option value="PENDING">Pending</option>
+                        <option value="ISSUED">Issued</option>
+                    </select>
                 </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                    <Label htmlFor="ticket_issued_date">Ticket Issued Date</Label>
+                    <Input id="ticket_issued_date" name="ticket_issued_date" type="date" />
+                </div>
+                <div className="flex flex-col gap-2">
+                    <Label htmlFor="platform">Platform</Label>
+                    <Input id="platform" name="platform" placeholder="e.g. GDS, Web" />
+                </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+                <Label htmlFor="airline">Airline</Label>
+                <Input id="airline" name="airline" placeholder="EK" required />
             </div>
 
             {/* Passenger Section */}
@@ -255,7 +281,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                     />
                 </div>
                 <div className="space-y-2">
-                    <Label>Email / Contact</Label>
+                    <Label>Contact (Email)</Label>
                     <Input
                         placeholder="email@example.com"
                         value={paxContact}
@@ -264,6 +290,13 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                             setPaxContact(e.target.value)
                             if (selectedPaxId) setSelectedPaxId("")
                         }}
+                    />
+                </div>
+                <div className="space-y-2">
+                    <Label>Phone Number</Label>
+                    <Input
+                        name="phone_number"
+                        placeholder="+971..."
                     />
                 </div>
             </div>
@@ -392,6 +425,18 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                 <div className="flex flex-col gap-2">
                     <Label htmlFor="return_date">Return Date</Label>
                     <Input id="return_date" name="return_date" type="date" placeholder="Leave empty for Oneway" />
+                </div>
+            </div>
+
+            {/* Advance Payment & Profit (Calculated visually or just inputs) */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                    <Label htmlFor="advance_payment">Advance Payment</Label>
+                    <Input id="advance_payment" name="advance_payment" type="number" step="0.01" placeholder="0.00" />
+                </div>
+                <div className="flex flex-col gap-2">
+                    <Label>Profit (Calculated)</Label>
+                    <Input disabled placeholder="Auto-calculated" className="bg-slate-100 dark:bg-slate-800" />
                 </div>
             </div>
 

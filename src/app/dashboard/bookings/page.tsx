@@ -99,20 +99,23 @@ export default async function BookingsPage() {
                                 <TableHead>Pax Name</TableHead>
                                 <TableHead>PNR</TableHead>
                                 <TableHead>Ticket No</TableHead>
-                                <TableHead>Dep</TableHead>
-                                <TableHead>Ret</TableHead>
+                                <TableHead>Issued</TableHead>
+                                <TableHead>Platform</TableHead>
+                                <TableHead>Status</TableHead>
+                                {/* <TableHead>Dep</TableHead> */}
+                                {/* <TableHead>Ret</TableHead> */}
                                 <TableHead>Airline</TableHead>
                                 <TableHead className="text-right">Fare</TableHead>
                                 <TableHead className="text-right">Selling</TableHead>
+                                <TableHead className="text-right">Advance</TableHead>
                                 <TableHead className="text-right">Profit</TableHead>
-                                <TableHead className="text-right">Status</TableHead>
                                 <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {bookings.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={12} className="text-center py-10 text-slate-500">
+                                    <TableCell colSpan={13} className="text-center py-10 text-slate-500">
                                         No bookings found. Create one to get started.
                                     </TableCell>
                                 </TableRow>
@@ -127,18 +130,21 @@ export default async function BookingsPage() {
                                             </Badge>
                                         </TableCell>
                                         <TableCell className="font-mono text-xs">{booking.ticket_number || '-'}</TableCell>
-                                        <TableCell>{booking.departure_date}</TableCell>
-                                        <TableCell>{booking.return_date || 'ONEWAY'}</TableCell>
+                                        <TableCell className="text-xs">{booking.ticket_issued_date || '-'}</TableCell>
+                                        <TableCell className="text-xs">{booking.platform || '-'}</TableCell>
+                                        <TableCell>
+                                            <Badge variant={booking.ticket_status === 'ISSUED' ? 'default' : 'secondary'} className="text-[10px]">
+                                                {booking.ticket_status || 'PENDING'}
+                                            </Badge>
+                                        </TableCell>
+                                        {/* <TableCell>{booking.departure_date}</TableCell> */}
+                                        {/* <TableCell>{booking.return_date || 'ONEWAY'}</TableCell> */}
                                         <TableCell>{booking.airline || '-'}</TableCell>
                                         <TableCell className="text-right text-slate-500">{booking.fare.toFixed(2)}</TableCell>
                                         <TableCell className="text-right">{booking.selling_price.toFixed(2)}</TableCell>
+                                        <TableCell className="text-right text-blue-600">{booking.advance_payment?.toFixed(2) || '0.00'}</TableCell>
                                         <TableCell className="text-right font-medium text-green-600 dark:text-green-400">
                                             {booking.profit.toFixed(2)}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <span className="text-xs font-semibold px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                                                {booking.payment_status}
-                                            </span>
                                         </TableCell>
                                         <TableCell>
                                             <DeleteButton id={booking.id} onDelete={deleteBooking} itemName="Booking" />

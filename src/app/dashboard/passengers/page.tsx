@@ -42,6 +42,7 @@ export default async function PassengersPage() {
                                 <TableHead>Name</TableHead>
                                 <TableHead>Passport</TableHead>
                                 <TableHead>Contact</TableHead>
+                                <TableHead>Phone</TableHead>
                                 <TableHead className="text-right">Created</TableHead>
                                 <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
@@ -53,6 +54,7 @@ export default async function PassengersPage() {
                                     <TableCell className="font-medium">{pax.name}</TableCell>
                                     <TableCell>{pax.passport_number || '-'}</TableCell>
                                     <TableCell>{pax.contact_info || '-'}</TableCell>
+                                    <TableCell>{pax.phone_number || '-'}</TableCell>
                                     <TableCell className="text-right text-xs text-slate-500">
                                         {new Date(pax.created_at).toLocaleDateString()}
                                     </TableCell>
