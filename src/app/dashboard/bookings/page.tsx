@@ -95,9 +95,9 @@ export default async function BookingsPage() {
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 border-slate-100 dark:border-slate-800">
+                                <TableHead>PNR</TableHead>
                                 <TableHead>Date</TableHead>
                                 <TableHead>Pax Name</TableHead>
-                                <TableHead>PNR</TableHead>
                                 <TableHead>Ticket No</TableHead>
                                 <TableHead>Issued</TableHead>
                                 <TableHead>Platform</TableHead>
@@ -122,13 +122,13 @@ export default async function BookingsPage() {
                             ) : (
                                 bookings.map((booking) => (
                                     <TableRow key={booking.id} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors border-slate-100 dark:border-slate-800">
-                                        <TableCell className="font-medium">{booking.entry_date}</TableCell>
-                                        <TableCell>{booking.pax_name}</TableCell>
                                         <TableCell>
                                             <Badge variant="outline" className="font-mono text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                                                 {booking.pnr}
                                             </Badge>
                                         </TableCell>
+                                        <TableCell className="font-medium">{booking.entry_date}</TableCell>
+                                        <TableCell>{booking.pax_name}</TableCell>
                                         <TableCell className="font-mono text-xs">{booking.ticket_number || '-'}</TableCell>
                                         <TableCell className="text-xs">{booking.ticket_issued_date || '-'}</TableCell>
                                         <TableCell className="text-xs">{booking.platform || '-'}</TableCell>

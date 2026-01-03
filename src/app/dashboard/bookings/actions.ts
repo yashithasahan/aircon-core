@@ -28,7 +28,13 @@ export async function createBooking(formData: BookingFormData) {
                 origin: formData.origin,
                 destination: formData.destination,
                 agent_id: formData.agent_id,
-                booking_type_id: formData.booking_type_id
+                booking_type_id: formData.booking_type_id,
+
+                // Mapped Missing Fields
+                ticket_status: formData.ticket_status,
+                ticket_issued_date: formData.ticket_issued_date || null, // handle empty string date
+                advance_payment: formData.advance_payment,
+                platform: formData.platform
             }
         ])
 
