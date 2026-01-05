@@ -34,6 +34,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
     const [loading, setLoading] = useState(false)
     const [openCombobox, setOpenCombobox] = useState(false)
     const [selectedPaxId, setSelectedPaxId] = useState("")
+    const [addMoreMode, setAddMoreMode] = useState(false)
 
     // Agent & Booking Type State
     const [openAgentCombobox, setOpenAgentCombobox] = useState(false)
@@ -99,7 +100,9 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                 newPaxData.append("surname", paxSurname)
                 newPaxData.append("first_name", paxFirstName)
                 newPaxData.append("contact_info", paxContact)
+                newPaxData.append("contact_info", paxContact)
                 newPaxData.append("phone_number", formData.get("phone_number") as string)
+                newPaxData.append("passenger_type", formData.get("passenger_type") as string)
 
                 const res = await createPassenger(newPaxData)
                 if (res?.data) {
@@ -147,21 +150,62 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
 
         try {
             await createBooking(rawData)
-            window.location.reload();
+            await createBooking(rawData)
+            // window.location.reload(); // Handled below
         } catch (error) {
             console.error(error)
             alert("Failed to create booking")
         } finally {
             setLoading(false)
         }
+
+        if (addMoreMode) {
+            // Reset only passenger checks and tickets
+            setSelectedPaxId("")
+            setPaxTitle("")
+            setPaxSurname("")
+            setPaxFirstName("")
+            setPaxContact("")
+
+            // Keep PNR, Airline, Dates, Agents, Platform
+            // Clear Ticket Number if unique? Usually yes.
+            // Access form element to reset specific fields? 
+            // Since we use uncontrolled inputs for some (like ticket_number), we might need to clear them manually via DOM or Ref
+            // For now, simpler: user manually clears ticket number or overwrites it. 
+            // But 'Add More' implies group booking, so ticket number usually +1. 
+            // Ideally we clear ticket number.
+            const ticketInput = document.getElementById("ticket_number") as HTMLInputElement;
+            if (ticketInput) ticketInput.value = "";
+
+            // Profit/Price might change for child, so maybe keep them but let user edit?
+            // Usually kept same if same itinerary.
+
+            alert("Booking saved! Add the next passenger.")
+        } else {
+            window.location.reload();
+        }
     }
 
     return (
         <form action={handleSubmit} className="grid gap-4 py-4">
+            {/* PNR & Booking Date - Top Priority */}
             <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                    <Label htmlFor="pnr">PNR</Label>
+                    {/* PNR is auto-focused to start typing immediately */}
+                    <Input id="pnr" name="pnr" placeholder="ABC123" required autoFocus />
+                </div>
                 <div className="flex flex-col gap-2">
                     <Label htmlFor="entry_date">Booking Date</Label>
                     <Input id="entry_date" name="entry_date" type="date" required defaultValue={new Date().toISOString().split('T')[0]} />
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                {/* Replaced Airline with combined row later? No, keep layout similar but shifted */}
+                <div className="flex flex-col gap-2">
+                    <Label htmlFor="airline">Airline</Label>
+                    <Input id="airline" name="airline" placeholder="EK" required />
                 </div>
                 <div className="flex flex-col gap-2">
                     <Label htmlFor="ticket_status">Ticket Status</Label>
@@ -183,10 +227,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                 </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-                <Label htmlFor="airline">Airline</Label>
-                <Input id="airline" name="airline" placeholder="EK" required />
-            </div>
+
 
             {/* Passenger Section */}
             <div className="p-4 border rounded-lg space-y-4 bg-slate-50 dark:bg-slate-900/50">
@@ -245,29 +286,40 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                     </Popover>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2">
-                    <div className="space-y-2 col-span-1">
-                        <Label>Title</Label>
-                        <Input
-                            placeholder="MR"
-                            value={paxTitle}
-                            onChange={(e) => {
-                                setPaxTitle(e.target.value.toUpperCase())
-                                if (selectedPaxId) setSelectedPaxId("")
-                            }}
-                        />
-                    </div>
-                    <div className="space-y-2 col-span-3">
-                        <Label>Surname</Label>
-                        <Input
-                            placeholder="DOE"
-                            value={paxSurname}
-                            onChange={(e) => {
-                                setPaxSurname(e.target.value.toUpperCase())
-                                if (selectedPaxId) setSelectedPaxId("")
-                            }}
-                        />
-                    </div>
+                <div className="space-y-2 col-span-1">
+                    <Label>Title</Label>
+                    <Input
+                        placeholder="MR"
+                        value={paxTitle}
+                        onChange={(e) => {
+                            setPaxTitle(e.target.value.toUpperCase())
+                            if (selectedPaxId) setSelectedPaxId("")
+                        }}
+                    />
+                </div>
+                <div className="space-y-2 col-span-3">
+                    <Label>Type</Label>
+                    <select
+                        name="passenger_type"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        <option value="ADULT">ADULT</option>
+                        <option value="CHILD">CHILD</option>
+                        <option value="INFANT">INFANT</option>
+                    </select>
+                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                    <Label>Surname</Label>
+                    <Input
+                        placeholder="DOE"
+                        value={paxSurname}
+                        onChange={(e) => {
+                            setPaxSurname(e.target.value.toUpperCase())
+                            if (selectedPaxId) setSelectedPaxId("")
+                        }}
+                    />
                 </div>
                 <div className="space-y-2">
                     <Label>First Name</Label>
@@ -406,16 +458,9 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="pnr">PNR</Label>
-                    <Input id="pnr" name="pnr" placeholder="ABC123" required />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="ticket_number">Ticket Number</Label>
-                    <Input id="ticket_number" name="ticket_number" placeholder="176-..." />
-                </div>
-            </div>
+            <Label htmlFor="ticket_number">Ticket Number</Label>
+            <Input id="ticket_number" name="ticket_number" placeholder="176-..." />
+
 
             <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
@@ -451,12 +496,34 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                 </div>
             </div>
 
-            <div className="flex justify-end gap-3 mt-4">
-                <Button variant="outline" type="button">Cancel</Button>
-                <Button type="submit" variant="premium" disabled={loading}>
-                    {loading ? "Saving..." : "Save Booking"}
-                </Button>
+            <div className="flex justify-between items-center mt-4">
+                <Button variant="ghost" type="button" onClick={() => window.location.reload()}>Reset / Clear</Button>
+                <div className="flex gap-2">
+                    <Button variant="outline" type="button" disabled={loading} onClick={(e) => {
+                        // Trick to submit form but with a flag
+                        const form = e.currentTarget.closest('form');
+                        if (form) {
+                            // We need to differentiate the action. 
+                            // Since we use client side handler, we can set a ref or state before submitting
+                            // But better: Just handle it in the button click? No, validation is on form.
+                            // Let's us a hidden input or just separate handler?
+                            // Actually, let's just make `handleSubmit` handle the event and we can check which button invoked it?
+                            // Or use state 'isAddMore'
+                            setLoading(true); // temporary lock
+                            form.requestSubmit(); // use native submit to trigger validation
+                        }
+                    }}>
+                        Cancel
+                    </Button>
+                    <Button type="submit" variant="secondary" disabled={loading} onClick={() => setAddMoreMode(true)}>
+                        {loading ? "Saving..." : "Save & Add Another"}
+                    </Button>
+                    <Button type="submit" variant="premium" disabled={loading} onClick={() => setAddMoreMode(false)}>
+                        {loading ? "Saving..." : "Save & Close"}
+                    </Button>
+                </div>
             </div>
-        </form>
+        </form >
     )
 }
+

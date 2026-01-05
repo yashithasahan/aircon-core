@@ -26,6 +26,8 @@ export async function createPassenger(formData: FormData) {
     const surname = formData.get('surname') as string
     const first_name = formData.get('first_name') as string
     const passport_number = formData.get('passport_number') as string
+    const phone_number = formData.get('phone_number') as string
+    const passenger_type = formData.get('passenger_type') as string || 'ADULT'
     const contact_info = formData.get('contact_info') as string
 
     // Construct full name for legacy support or display
@@ -41,7 +43,9 @@ export async function createPassenger(formData: FormData) {
             first_name,
             name,
             passport_number,
-            contact_info
+            contact_info,
+            phone_number,
+            passenger_type
         }])
         .select()
         .single()

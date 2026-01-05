@@ -56,6 +56,7 @@ export interface Passenger {
     passport_number?: string;
     contact_info?: string;
     phone_number?: string;
+    passenger_type?: 'ADULT' | 'CHILD' | 'INFANT';
 }
 
 export type BookingFormData = Omit<Booking, "id" | "created_at" | "profit" | "agent" | "booking_type">;
