@@ -11,9 +11,19 @@ import {
     Settings,
     Users
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ModeToggle } from "@/components/ui/mode-toggle";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog"
+import { logout } from "@/app/(auth)/logout/actions"
+import { cn } from "@/lib/utils"
 
 const sidebarItems = [
     {
@@ -81,10 +91,26 @@ export function Sidebar() {
                     <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Theme</span>
                     <ModeToggle />
                 </div>
-                <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20">
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Logout
-                </Button>
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20">
+                            <LogOut className="mr-2 h-4 w-4" />
+                            Logout
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Sign out</DialogTitle>
+                            <DialogDescription>
+                                Are you sure you want to sign out?
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                            <Button variant="outline">Cancel</Button>
+                            <Button variant="destructive" onClick={() => logout()}>Sign out</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </div>
         </aside>
     );

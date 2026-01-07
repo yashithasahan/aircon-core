@@ -27,10 +27,15 @@ export interface Booking {
     passenger_id?: string; // FK
 
     // New fields
-    ticket_status?: 'PENDING' | 'ISSUED';
+    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED';
     ticket_issued_date?: string;
     advance_payment?: number;
     platform?: string;
+
+    // Refund fields
+    refund_date?: string;
+    actual_refund_amount?: number;
+    customer_refund_amount?: number;
 
     // Existing fields
     origin?: string;

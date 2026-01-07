@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { createBooking, createAgent, createBookingType } from "@/app/dashboard/bookings/actions"
 import { createPassenger } from "@/app/dashboard/passengers/actions"
 import { BookingFormData, Passenger, Agent, BookingType } from "@/types"
-import { Check, ChevronsUpDown, Plus } from "lucide-react"
+import { Check, ChevronsUpDown, Plus, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
     Command,
@@ -53,6 +53,9 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
     const [paxSurname, setPaxSurname] = useState("")
     const [paxFirstName, setPaxFirstName] = useState("")
     const [paxContact, setPaxContact] = useState("")
+
+    // Ticket Status State for conditional rendering
+    const [ticketStatus, setTicketStatus] = useState("PENDING")
 
     // Auto-fill when passenger selected
     useEffect(() => {
@@ -146,6 +149,11 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
             destination: formData.get("destination") as string,
             agent_id: selectedAgentId,
             booking_type_id: selectedTypeId,
+
+            // Refund Fields
+            refund_date: formData.get("refund_date") as string,
+            actual_refund_amount: Number(formData.get("actual_refund_amount") || 0),
+            customer_refund_amount: Number(formData.get("customer_refund_amount") || 0),
         }
 
         try {
@@ -209,9 +217,17 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                 </div>
                 <div className="flex flex-col gap-2">
                     <Label htmlFor="ticket_status">Ticket Status</Label>
-                    <select name="ticket_status" id="ticket_status" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                    <select
+                        name="ticket_status"
+                        id="ticket_status"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        value={ticketStatus}
+                        onChange={(e) => setTicketStatus(e.target.value)}
+                    >
                         <option value="PENDING">Pending</option>
                         <option value="ISSUED">Issued</option>
+                        <option value="VOID">Void</option>
+                        <option value="REFUNDED">Refunded</option>
                     </select>
                 </div>
             </div>
@@ -226,6 +242,23 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                     <Input id="platform" name="platform" placeholder="e.g. GDS, Web" />
                 </div>
             </div>
+
+            {ticketStatus === 'REFUNDED' && (
+                <div className="grid grid-cols-3 gap-4 p-4 border border-red-200 rounded-md bg-red-50 dark:bg-red-900/10">
+                    <div className="flex flex-col gap-2">
+                        <Label htmlFor="refund_date">Refund Date</Label>
+                        <Input id="refund_date" name="refund_date" type="date" required />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <Label htmlFor="actual_refund_amount">Actual Refund (Agency)</Label>
+                        <Input id="actual_refund_amount" name="actual_refund_amount" type="number" step="0.01" />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <Label htmlFor="customer_refund_amount">Customer Refund (Client)</Label>
+                        <Input id="customer_refund_amount" name="customer_refund_amount" type="number" step="0.01" />
+                    </div>
+                </div>
+            )}
 
 
 
@@ -516,10 +549,10 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
                         Cancel
                     </Button>
                     <Button type="submit" variant="secondary" disabled={loading} onClick={() => setAddMoreMode(true)}>
-                        {loading ? "Saving..." : "Save & Add Another"}
+                        {loading && addMoreMode ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : "Save & Add Another"}
                     </Button>
                     <Button type="submit" variant="premium" disabled={loading} onClick={() => setAddMoreMode(false)}>
-                        {loading ? "Saving..." : "Save & Close"}
+                        {loading && !addMoreMode ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : "Save & Close"}
                     </Button>
                 </div>
             </div>

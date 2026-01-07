@@ -34,7 +34,12 @@ export async function createBooking(formData: BookingFormData) {
                 ticket_status: formData.ticket_status,
                 ticket_issued_date: formData.ticket_issued_date || null, // handle empty string date
                 advance_payment: formData.advance_payment,
-                platform: formData.platform
+                platform: formData.platform,
+
+                // Refund / Void Fields
+                refund_date: formData.refund_date || null,
+                actual_refund_amount: formData.actual_refund_amount,
+                customer_refund_amount: formData.customer_refund_amount
             }
         ])
 

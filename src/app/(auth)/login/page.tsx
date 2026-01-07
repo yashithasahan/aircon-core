@@ -1,9 +1,9 @@
 import Link from "next/link"
 import { Plane, Lock, User } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { SubmitButton } from "@/components/auth/submit-button"
 
 import { login } from "./actions"
 
@@ -70,9 +70,13 @@ export default async function LoginPage(props: { searchParams: Promise<{ error?:
                             </div>
                         </CardContent>
                         <CardFooter className="flex flex-col space-y-4">
-                            <Button className="w-full" variant={isError ? "destructive" : "premium"} size="lg" type="submit">
-                                Sign In
-                            </Button>
+                            <SubmitButton
+                                className="w-full"
+                                variant={isError ? "destructive" : "premium"}
+                                size="lg"
+                                text="Sign In"
+                                loadingText="Signing In..."
+                            />
                             <div className="text-xs text-center text-slate-500">
                                 Protected by secure encryption. Authorized personnel only.
                             </div>
