@@ -23,9 +23,17 @@ import { BookingsTable } from "@/components/dashboard/bookings-table";
 import { Booking } from "@/types";
 
 import { getPassengers } from "@/app/dashboard/passengers/actions";
+import { SearchInput } from "@/components/dashboard/search-input";
 
-export default async function BookingsPage() {
-    const bookings = await getBookings() as Booking[];
+export default async function BookingsPage({
+    searchParams,
+}: {
+    searchParams?: Promise<{
+        query?: string;
+    }>;
+}) {
+    const query = (await searchParams)?.query || '';
+    const bookings = await getBookings(query) as Booking[];
     const passengers = await getPassengers();
     const agents = await getAgents();
     const bookingTypes = await getBookingTypes();
@@ -45,7 +53,7 @@ export default async function BookingsPage() {
                                 New Booking
                             </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+                        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
                             <DialogHeader>
                                 <DialogTitle>Create New Booking</DialogTitle>
                                 <DialogDescription>
@@ -64,14 +72,7 @@ export default async function BookingsPage() {
 
             {/* Filter/Search Bar */}
             <div className="flex items-center gap-2">
-                <div className="relative flex-1 max-w-sm">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
-                    <Input
-                        type="search"
-                        placeholder="Search by name, PNR, or ticket..."
-                        className="pl-9 bg-white dark:bg-slate-950"
-                    />
-                </div>
+                <SearchInput placeholder="Search by name, PNR, or ticket..." />
                 <Button variant="outline" size="icon">
                     <Filter className="h-4 w-4" />
                 </Button>
@@ -83,7 +84,12 @@ export default async function BookingsPage() {
                     <CardDescription>Manage daily transactions</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <BookingsTable bookings={bookings} />
+                    <BookingsTable
+                        bookings={bookings}
+                        passengers={passengers}
+                        agents={agents}
+                        bookingTypes={bookingTypes}
+                    />
                 </CardContent>
             </Card>
         </div>

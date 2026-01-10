@@ -68,6 +68,9 @@ export async function deletePassenger(id: string) {
         .eq('id', id)
 
     if (error) {
+        if (error.code === '23503') { // Foreign key violation code (Postgres)
+            throw new Error("Cannot delete this passenger because they have existing bookings. Please delete the bookings first.")
+        }
         throw new Error(error.message)
     }
 

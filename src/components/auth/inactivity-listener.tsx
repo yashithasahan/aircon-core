@@ -3,8 +3,8 @@
 import { useEffect, useRef } from "react"
 import { logout } from "@/app/(auth)/logout/actions"
 
-// 15 minutes in milliseconds
-const INACTIVITY_LIMIT_MS = 15 * 60 * 1000
+// 30 seconds in milliseconds
+const INACTIVITY_LIMIT_MS = 10 * 60 * 1000
 
 export function InactivityListener() {
     const timerRef = useRef<NodeJS.Timeout | null>(null)

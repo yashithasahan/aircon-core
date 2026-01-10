@@ -31,6 +31,7 @@ export interface Booking {
     ticket_issued_date?: string;
     advance_payment?: number;
     platform?: string;
+    payment_method?: string; // e.g. 'Easy Pay', 'Credit Card'
 
     // Refund fields
     refund_date?: string;

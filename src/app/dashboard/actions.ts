@@ -2,12 +2,24 @@
 
 import { createClient } from '@/utils/supabase/server'
 
-export async function getDashboardStats() {
+export async function getDashboardStats(dateStr?: string) {
     const supabase = await createClient()
+
+    // Determine date range
+    const targetDate = dateStr ? new Date(dateStr + '-01') : new Date()
+    // Validation: if invalid date, fallback to now
+    const validDate = isNaN(targetDate.getTime()) ? new Date() : targetDate
+
+    // Start of month
+    const startOfMonth = new Date(validDate.getFullYear(), validDate.getMonth(), 1)
+    // End of month (start of next month)
+    const endOfMonth = new Date(validDate.getFullYear(), validDate.getMonth() + 1, 1)
 
     const { data: bookings, error } = await supabase
         .from('bookings')
         .select('selling_price, profit, id')
+        .gte('created_at', startOfMonth.toISOString())
+        .lt('created_at', endOfMonth.toISOString())
 
     if (error) {
         console.error('Error fetching stats:', error)

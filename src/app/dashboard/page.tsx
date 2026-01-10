@@ -2,17 +2,36 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, DollarSign, Plane, TrendingUp } from "lucide-react";
 import { getDashboardStats, getRecentSales } from "./actions";
 
-export default async function DashboardPage() {
-    const stats = await getDashboardStats();
+import { MonthSelector } from "@/components/dashboard/month-selector";
+import { format } from "date-fns";
+
+export default async function DashboardPage({
+    searchParams,
+}: {
+    searchParams: Promise<{ date?: string }>
+}) {
+    const { date: dateParam } = await searchParams;
+    const stats = await getDashboardStats(dateParam);
     const recentSales = await getRecentSales();
+
+    // Calculate display label for current selection
+    const displayDate = dateParam
+        ? new Date(dateParam + '-01')
+        : new Date();
+    const formattedDate = !isNaN(displayDate.getTime())
+        ? format(displayDate, 'MMMM yyyy')
+        : format(new Date(), 'MMMM yyyy');
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Dashboard</h2>
-                <div className="text-sm text-slate-500">
-                    Real-time Overview
+                <div>
+                    <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Dashboard</h2>
+                    <div className="text-sm text-slate-500">
+                        Real-time Overview
+                    </div>
                 </div>
+                <MonthSelector />
             </div>
 
             {/* Summary Cards */}
@@ -27,7 +46,7 @@ export default async function DashboardPage() {
                     <CardContent>
                         <div className="text-2xl font-bold">€{stats.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                         <p className="text-xs text-blue-100/80">
-                            Lifetime Sales
+                            Sales for {formattedDate}
                         </p>
                     </CardContent>
                 </Card>

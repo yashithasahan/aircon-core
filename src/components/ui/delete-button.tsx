@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Trash2, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import {
     Dialog,
     DialogContent,
@@ -28,9 +29,10 @@ export function DeleteButton({ id, onDelete, itemName = "item" }: DeleteButtonPr
         try {
             await onDelete(id) // Server action
             setOpen(false)
-        } catch (error) {
+            toast.success(`${itemName} deleted successfully`)
+        } catch (error: any) {
             console.error(error)
-            alert("Failed to delete " + itemName)
+            toast.error(error.message || "Failed to delete " + itemName)
         } finally {
             setLoading(false)
         }

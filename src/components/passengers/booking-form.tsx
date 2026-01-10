@@ -1,14 +1,31 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import { useForm } from "react-hook-form"
+import { useRouter } from "next/navigation"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { format } from "date-fns"
+import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react"
+import { toast } from "sonner"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { createBooking, createAgent, createBookingType } from "@/app/dashboard/bookings/actions"
-import { createPassenger } from "@/app/dashboard/passengers/actions"
-import { BookingFormData, Passenger, Agent, BookingType } from "@/types"
-import { Check, ChevronsUpDown, Plus, Loader2 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import {
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
+} from "../ui/form"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 import {
     Command,
     CommandEmpty,
@@ -29,46 +46,204 @@ import {
     DialogTitle,
     DialogTrigger
 } from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 
-export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { passengers: Passenger[], agents?: Agent[], bookingTypes?: BookingType[] }) {
+import { createBooking, createAgent, createBookingType, updateBooking } from "@/app/dashboard/bookings/actions"
+import { createPassenger } from "@/app/dashboard/passengers/actions"
+import { Passenger, Agent, BookingType } from "@/types"
+
+// --- Zod Schema ---
+const bookingFormSchema = z.object({
+    // Passenger - we will handle "new vs existing" logic in submit, but validate fields
+    passenger_id: z.string().optional(),
+    title: z.string().optional(),
+    surname: z.string().optional(),
+    first_name: z.string().optional(),
+    contact_info: z.string().email("Invalid email").optional().or(z.literal("")),
+    phone_number: z.string().optional(),
+    passenger_type: z.enum(["ADULT", "CHILD", "INFANT"]),
+
+    // Booking Details
+    pnr: z.string().min(1, "PNR is required"),
+    entry_date: z.string().min(1, "Booking date is required"),
+    airline: z.string().min(1, "Airline is required"),
+    ticket_status: z.enum(["PENDING", "ISSUED", "VOID", "REFUNDED", "CANCELED"]),
+    ticket_issued_date: z.string().optional(),
+    platform: z.string().optional(),
+    ticket_number: z.string().optional(),
+
+    origin: z.string().optional(),
+    destination: z.string().optional(),
+    departure_date: z.string().min(1, "Departure date is required"),
+    return_date: z.string().optional(),
+
+    // Financials
+    fare: z.coerce.number().min(0, "Fare must be positive"),
+    selling_price: z.coerce.number().min(0, "Selling price must be positive"),
+    advance_payment: z.coerce.number().optional(),
+
+    // Relations - MANDATORY
+    // Relations - MANDATORY
+    agent_id: z.string().min(1, "Agent is required"),
+    booking_type_id: z.string().min(1, "Booking type is required"),
+
+    // Refund (conditional validation is tricky in pure Zod without superRefine, but we can make them optional and check logic)
+    refund_date: z.string().optional(),
+    actual_refund_amount: z.coerce.number().optional(),
+    customer_refund_amount: z.coerce.number().optional(),
+
+    payment_method: z.enum(["Easy Pay", "Credit Card"]).optional(),
+}).superRefine((data, ctx) => {
+    // If ticket status is REFUNDED, require refund date
+    if (data.ticket_status === 'REFUNDED' && !data.refund_date) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Refund date is required when status is Refunded",
+            path: ["refund_date"]
+        });
+    }
+
+    // Validate passenger selection
+    if (!data.passenger_id && (!data.surname || !data.first_name)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Select a passenger or enter new passenger details",
+            path: ["surname"] // highlight surname 
+        });
+    }
+});
+
+type BookingFormValues = z.infer<typeof bookingFormSchema>
+
+interface BookingFormProps {
+    passengers: Passenger[]
+    agents?: Agent[]
+    bookingTypes?: BookingType[]
+    initialData?: any // Can be Booking type but might need reshaping
+    bookingId?: string
+    onSuccess?: () => void
+}
+
+export function BookingForm({ passengers, agents = [], bookingTypes = [], initialData, bookingId, onSuccess }: BookingFormProps) {
     const [loading, setLoading] = useState(false)
-    const [openCombobox, setOpenCombobox] = useState(false)
-    const [selectedPaxId, setSelectedPaxId] = useState("")
     const [addMoreMode, setAddMoreMode] = useState(false)
 
-    // Agent & Booking Type State
-    const [openAgentCombobox, setOpenAgentCombobox] = useState(false)
-    const [selectedAgentId, setSelectedAgentId] = useState("")
-    const [openTypeCombobox, setOpenTypeCombobox] = useState(false)
-    const [selectedTypeId, setSelectedTypeId] = useState("")
+    const router = useRouter() // Initialize router
 
-    // New create states
+    // UI States for Comboboxes
+    const [openPaxCombobox, setOpenPaxCombobox] = useState(false)
+    const [openAgentCombobox, setOpenAgentCombobox] = useState(false)
+    const [openTypeCombobox, setOpenTypeCombobox] = useState(false)
+
+    // New Entity States
     const [newAgentOpen, setNewAgentOpen] = useState(false)
     const [newAgentName, setNewAgentName] = useState("")
     const [newTypeOpen, setNewTypeOpen] = useState(false)
     const [newTypeName, setNewTypeName] = useState("")
 
-    // Passenger Fields State
-    const [paxTitle, setPaxTitle] = useState("")
-    const [paxSurname, setPaxSurname] = useState("")
-    const [paxFirstName, setPaxFirstName] = useState("")
-    const [paxContact, setPaxContact] = useState("")
+    // Use ref for immediate state access in onSubmit during form submission
+    const addMoreModeRef = useRef(false)
 
-    // Ticket Status State for conditional rendering
-    const [ticketStatus, setTicketStatus] = useState("PENDING")
+    // Heuristic to parse name if not a linked passenger
+    let initialSurname = initialData?.surname || ""
+    let initialFirstName = initialData?.first_name || ""
+    let initialTitle = initialData?.title || ""
 
-    // Auto-fill when passenger selected
+    if (initialData && !initialData.passenger_id && initialData.pax_name) {
+        const parts = initialData.pax_name.trim().split(/\s+/)
+        if (parts.length > 0) {
+            const titles = ['MR', 'MRS', 'MS', 'MSTR', 'MISS', 'DR', 'PROF']
+            // Check if first part is a title
+            if (titles.includes(parts[0].toUpperCase())) {
+                initialTitle = parts[0].toUpperCase()
+                parts.shift() // Remove title
+            }
+
+            if (parts.length === 1) {
+                initialSurname = parts[0]
+            } else if (parts.length >= 2) {
+                // Assume last part is First Name, rest is Surname (common in airline ticketing: Surname/FirstName or Surname FirstName)
+                // But user entered "Title Surname FirstName" in the form originally?
+                // Code: `${data.title || ''} ${data.surname} ${data.first_name}`.trim()
+                // So "MR DOE JOHN" -> Title=MR, Surname=DOE, FirstName=JOHN
+
+                initialFirstName = parts.pop() || "" // Last part
+                initialSurname = parts.join(" ") // Rest is surname
+            }
+        }
+    }
+
+    const defaultValues: Partial<BookingFormValues> = {
+        passenger_type: initialData?.passenger_type || "ADULT",
+        entry_date: initialData?.entry_date ? initialData.entry_date.split('T')[0] : new Date().toISOString().split('T')[0],
+        ticket_status: initialData?.ticket_status || "PENDING",
+        fare: initialData?.fare || 0,
+        selling_price: initialData?.selling_price || 0,
+        passenger_id: initialData?.passenger_id || "",
+        surname: initialSurname,
+        first_name: initialFirstName,
+        title: initialTitle,
+        contact_info: initialData?.contact_info || "", // Unlinked pax might lose this if not stored in booking? DB schema check needed. 
+        // Note: 'contact_info' (email) and 'phone_number' are not on bookings table, they are on passengers table.
+        // So for unlinked passengers, we actually lose contact info unless we saved it to `pax_name` (we didn't) or booking has these columns.
+        // Checking createBooking: it saves `pax_name`, `passenger_id`. It does NOT save phone/email to bookings table.
+        // So editing unlinked passenger = lost contact info. That's a limitation of current schema.
+
+        phone_number: "", // See above
+
+        pnr: initialData?.pnr || "",
+        airline: initialData?.airline || "",
+        ticket_number: initialData?.ticket_number || "",
+        origin: initialData?.origin || "",
+        destination: initialData?.destination || "",
+        departure_date: initialData?.departure_date ? initialData.departure_date.split('T')[0] : "",
+        return_date: initialData?.return_date ? initialData.return_date.split('T')[0] : "",
+        advance_payment: initialData?.advance_payment || 0,
+        agent_id: initialData?.agent_id || initialData?.agent?.id || "", // agent might be object or id? Types says agent_id.
+        booking_type_id: initialData?.booking_type_id || initialData?.booking_type?.id || "",
+
+        ticket_issued_date: initialData?.ticket_issued_date ? initialData.ticket_issued_date.split('T')[0] : "",
+        platform: initialData?.platform || "",
+
+        refund_date: initialData?.refund_date ? initialData.refund_date.split('T')[0] : "",
+        actual_refund_amount: initialData?.actual_refund_amount || 0,
+        customer_refund_amount: initialData?.customer_refund_amount || 0,
+    }
+
+    const form = useForm<BookingFormValues>({
+        resolver: zodResolver(bookingFormSchema) as any,
+        defaultValues
+    })
+
+    const { watch, setValue, reset } = form
+    const control = form.control as any
+    const selectedPaxId = watch("passenger_id")
+    const ticketStatus = watch("ticket_status")
+    const fare = watch("fare") || 0
+    const sellingPrice = watch("selling_price") || 0
+    const advancePayment = watch("advance_payment") || 0
+    const profit = sellingPrice - fare
+
+    const selectedBookingTypeId = watch("booking_type_id")
+    const selectedBookingType = bookingTypes.find(t => t.id === selectedBookingTypeId)
+
+    // Auto-fill passenger details
     useEffect(() => {
         if (selectedPaxId) {
             const pax = passengers.find(p => p.id === selectedPaxId)
             if (pax) {
-                setPaxTitle(pax.title || "")
-                setPaxSurname(pax.surname || "")
-                setPaxFirstName(pax.first_name || "")
-                setPaxContact(pax.contact_info || "")
+                setValue("title", pax.title || "")
+                setValue("surname", pax.surname || "")
+                setValue("first_name", pax.first_name || "")
+                setValue("contact_info", pax.contact_info || "")
+                // setValue("phone_number", pax.phone_number || "")
             }
         }
-    }, [selectedPaxId, passengers])
+    }, [selectedPaxId, passengers, setValue])
+
+    function handleReset() {
+        reset(defaultValues)
+    }
 
     async function handleCreateAgent() {
         if (!newAgentName) return;
@@ -76,7 +251,8 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
         if (res?.data) {
             setNewAgentOpen(false);
             setNewAgentName("");
-            window.location.reload();
+            router.refresh(); // Refresh server components to show new agent
+            toast.success("Agent created")
         }
     }
 
@@ -86,477 +262,706 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [] }: { pa
         if (res?.data) {
             setNewTypeOpen(false);
             setNewTypeName("");
-            window.location.reload();
+            router.refresh(); // Refresh server components to show new type
+            toast.success("Booking type created")
         }
     }
 
-    async function handleSubmit(formData: FormData) {
+    async function onSubmit(data: BookingFormValues) {
         setLoading(true)
+        try {
+            let finalPaxId = data.passenger_id
 
-        let finalPaxId = selectedPaxId
-
-        // If no passenger selected, try to create one from inline fields
-        if (!finalPaxId) {
-            if (paxSurname && paxFirstName) {
+            // Create new passenger if needed AND if we are not just keeping existing one
+            if (!finalPaxId && (!bookingId)) {
                 const newPaxData = new FormData()
-                newPaxData.append("title", paxTitle)
-                newPaxData.append("surname", paxSurname)
-                newPaxData.append("first_name", paxFirstName)
-                newPaxData.append("contact_info", paxContact)
-                newPaxData.append("contact_info", paxContact)
-                newPaxData.append("phone_number", formData.get("phone_number") as string)
-                newPaxData.append("passenger_type", formData.get("passenger_type") as string)
+                newPaxData.append("title", data.title || "")
+                newPaxData.append("surname", data.surname || "")
+                newPaxData.append("first_name", data.first_name || "")
+                newPaxData.append("contact_info", data.contact_info || "")
+                newPaxData.append("phone_number", data.phone_number || "")
+                newPaxData.append("passenger_type", data.passenger_type)
 
                 const res = await createPassenger(newPaxData)
                 if (res?.data) {
                     finalPaxId = res.data.id
                 } else {
-                    alert("Failed to create new passenger. Please check fields.")
-                    setLoading(false)
-                    return
+                    throw new Error("Failed to create passenger")
                 }
-            } else {
-                alert("Please select a passenger or fill in Surname and First Name")
-                setLoading(false)
-                return
+            } else if (!finalPaxId && bookingId) {
+                // If editing and no passenger selected (maybe unlinked?), we might create one too?
+                // For now, let's assume if they input name details on edit, they want to create/update passenger?
+                // This gets complex. Let's assume on Edit, we stick with the ID or if they clear it, they create new.
+                if (data.surname || data.first_name) {
+                    const newPaxData = new FormData()
+                    newPaxData.append("title", data.title || "")
+                    newPaxData.append("surname", data.surname || "")
+                    newPaxData.append("first_name", data.first_name || "")
+                    newPaxData.append("contact_info", data.contact_info || "")
+                    newPaxData.append("phone_number", data.phone_number || "")
+                    newPaxData.append("passenger_type", data.passenger_type)
+
+                    const res = await createPassenger(newPaxData)
+                    if (res?.data) {
+                        finalPaxId = res.data.id
+                    }
+                }
             }
-        }
 
-        const selectedPax = passengers.find(p => p.id === finalPaxId);
-        // If we just created one, we might not have it in 'passengers' array yet, so name might be fallback
-        const derivedName = selectedPax ? selectedPax.name : `${paxTitle} ${paxSurname} ${paxFirstName}`.trim()
+            const selectedPax = passengers.find(p => p.id === finalPaxId);
+            const derivedName = selectedPax ? selectedPax.name : `${data.title || ''} ${data.surname} ${data.first_name}`.trim()
 
-        const rawData: BookingFormData = {
-            entry_date: formData.get("entry_date") as string,
-            pax_name: derivedName,
-            passenger_id: finalPaxId,
-            pnr: formData.get("pnr") as string,
-            ticket_number: formData.get("ticket_number") as string,
-            departure_date: formData.get("departure_date") as string,
-            return_date: formData.get("return_date") as string,
-            airline: formData.get("airline") as string,
-            fare: Number(formData.get("fare")),
-            selling_price: Number(formData.get("selling_price")),
-            payment_status: "PENDING", // Keep default or specific logic
+            const bookingData: any = {
+                ...data,
+                pax_name: derivedName,
+                passenger_id: finalPaxId || null,
+                // Ensure numbers are numbers
+                fare: Number(data.fare),
+                selling_price: Number(data.selling_price),
+                advance_payment: Number(data.advance_payment || 0),
+                actual_refund_amount: Number(data.actual_refund_amount || 0),
+                customer_refund_amount: Number(data.customer_refund_amount || 0),
+            }
 
-            // New Mapped Fields
-            ticket_status: formData.get("ticket_status") as 'PENDING' | 'ISSUED',
-            ticket_issued_date: formData.get("ticket_issued_date") as string,
-            advance_payment: Number(formData.get("advance_payment") || 0),
-            platform: formData.get("platform") as string,
+            if (bookingId) {
+                await updateBooking(bookingId, bookingData)
+                toast.success("Booking updated successfully")
+                router.refresh()
+                if (onSuccess) onSuccess()
+            } else {
+                await createBooking(bookingData)
 
-            origin: formData.get("origin") as string,
-            destination: formData.get("destination") as string,
-            agent_id: selectedAgentId,
-            booking_type_id: selectedTypeId,
+                if (addMoreModeRef.current) {
+                    // Reset passenger fields but keep others
+                    setValue("passenger_id", "")
+                    setValue("title", "")
+                    setValue("surname", "")
+                    setValue("first_name", "")
+                    setValue("contact_info", "")
+                    // setValue("phone_number", "")
+                    setValue("ticket_number", "") // Typically unique per ticket
 
-            // Refund Fields
-            refund_date: formData.get("refund_date") as string,
-            actual_refund_amount: Number(formData.get("actual_refund_amount") || 0),
-            customer_refund_amount: Number(formData.get("customer_refund_amount") || 0),
-        }
-
-        try {
-            await createBooking(rawData)
-            await createBooking(rawData)
-            // window.location.reload(); // Handled below
-        } catch (error) {
+                    toast.success("Booking saved! Add the next passenger.")
+                } else {
+                    handleReset()
+                    toast.success("Booking saved successfully")
+                    router.refresh()
+                    if (onSuccess) onSuccess()
+                }
+            }
+        } catch (error: any) {
             console.error(error)
-            alert("Failed to create booking")
+            toast.error(error.message || "Failed to save booking. Please check details.")
         } finally {
             setLoading(false)
-        }
-
-        if (addMoreMode) {
-            // Reset only passenger checks and tickets
-            setSelectedPaxId("")
-            setPaxTitle("")
-            setPaxSurname("")
-            setPaxFirstName("")
-            setPaxContact("")
-
-            // Keep PNR, Airline, Dates, Agents, Platform
-            // Clear Ticket Number if unique? Usually yes.
-            // Access form element to reset specific fields? 
-            // Since we use uncontrolled inputs for some (like ticket_number), we might need to clear them manually via DOM or Ref
-            // For now, simpler: user manually clears ticket number or overwrites it. 
-            // But 'Add More' implies group booking, so ticket number usually +1. 
-            // Ideally we clear ticket number.
-            const ticketInput = document.getElementById("ticket_number") as HTMLInputElement;
-            if (ticketInput) ticketInput.value = "";
-
-            // Profit/Price might change for child, so maybe keep them but let user edit?
-            // Usually kept same if same itinerary.
-
-            alert("Booking saved! Add the next passenger.")
-        } else {
-            window.location.reload();
         }
     }
 
     return (
-        <form action={handleSubmit} className="grid gap-4 py-4">
-            {/* PNR & Booking Date - Top Priority */}
-            <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="pnr">PNR</Label>
-                    {/* PNR is auto-focused to start typing immediately */}
-                    <Input id="pnr" name="pnr" placeholder="ABC123" required autoFocus />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="entry_date">Booking Date</Label>
-                    <Input id="entry_date" name="entry_date" type="date" required defaultValue={new Date().toISOString().split('T')[0]} />
-                </div>
-            </div>
+        <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 py-4">
 
-            <div className="grid grid-cols-2 gap-4">
-                {/* Replaced Airline with combined row later? No, keep layout similar but shifted */}
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="airline">Airline</Label>
-                    <Input id="airline" name="airline" placeholder="EK" required />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="ticket_status">Ticket Status</Label>
-                    <select
+                {/* General Details - Row 1 */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="pnr"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>PNR (Reference)</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="ABC1234" {...field} autoFocus tabIndex={1} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="entry_date"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Booking Date</FormLabel>
+                                <FormControl>
+                                    <Input type="date" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="airline"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Airline</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="EK" {...field} tabIndex={5} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
                         name="ticket_status"
-                        id="ticket_status"
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        value={ticketStatus}
-                        onChange={(e) => setTicketStatus(e.target.value)}
-                    >
-                        <option value="PENDING">Pending</option>
-                        <option value="ISSUED">Issued</option>
-                        <option value="VOID">Void</option>
-                        <option value="REFUNDED">Refunded</option>
-                    </select>
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Ticket Status</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl>
+                                        <SelectTrigger tabIndex={6}>
+                                            <SelectValue placeholder="Select status" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="PENDING">Pending</SelectItem>
+                                        <SelectItem value="ISSUED">Issued</SelectItem>
+                                        <SelectItem value="VOID">Void</SelectItem>
+                                        <SelectItem value="REFUNDED">Refunded</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
                 </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="ticket_issued_date">Ticket Issued Date</Label>
-                    <Input id="ticket_issued_date" name="ticket_issued_date" type="date" />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="platform">Platform</Label>
-                    <Input id="platform" name="platform" placeholder="e.g. GDS, Web" />
-                </div>
-            </div>
-
-            {ticketStatus === 'REFUNDED' && (
-                <div className="grid grid-cols-3 gap-4 p-4 border border-red-200 rounded-md bg-red-50 dark:bg-red-900/10">
-                    <div className="flex flex-col gap-2">
-                        <Label htmlFor="refund_date">Refund Date</Label>
-                        <Input id="refund_date" name="refund_date" type="date" required />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                        <Label htmlFor="actual_refund_amount">Actual Refund (Agency)</Label>
-                        <Input id="actual_refund_amount" name="actual_refund_amount" type="number" step="0.01" />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                        <Label htmlFor="customer_refund_amount">Customer Refund (Client)</Label>
-                        <Input id="customer_refund_amount" name="customer_refund_amount" type="number" step="0.01" />
-                    </div>
-                </div>
-            )}
-
-
-
-            {/* Passenger Section */}
-            <div className="p-4 border rounded-lg space-y-4 bg-slate-50 dark:bg-slate-900/50">
-                <div className="flex flex-col gap-2">
-                    <Label>Select Existing Passenger (Optional)</Label>
-                    <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="outline"
-                                role="combobox"
-                                aria-expanded={openCombobox}
-                                className="w-full justify-between"
-                            >
-                                {selectedPaxId
-                                    ? passengers.find((p) => p.id === selectedPaxId)?.name
-                                    : "Select passenger to auto-fill..."}
-                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[400px] p-0">
-                            <Command>
-                                <CommandInput placeholder="Search passenger..." />
-                                <CommandList>
-                                    <CommandEmpty>No passenger found.</CommandEmpty>
-                                    <CommandGroup>
-                                        {passengers.map((p) => (
-                                            <CommandItem
-                                                key={p.id}
-                                                value={p.name}
-                                                onSelect={() => {
-                                                    if (p.id === selectedPaxId) {
-                                                        setSelectedPaxId("")
-                                                        setPaxTitle("")
-                                                        setPaxSurname("")
-                                                        setPaxFirstName("")
-                                                        setPaxContact("")
-                                                    } else {
-                                                        setSelectedPaxId(p.id)
-                                                    }
-                                                    setOpenCombobox(false)
-                                                }}
-                                            >
-                                                <Check
+                {/* Agent & Source - Row 2 */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="agent_id"
+                        render={({ field }: { field: any }) => (
+                            <FormItem className="flex flex-col">
+                                <FormLabel>Agent <span className="text-red-500">*</span></FormLabel>
+                                <div className="flex gap-2">
+                                    <Popover open={openAgentCombobox} onOpenChange={setOpenAgentCombobox}>
+                                        <PopoverTrigger asChild>
+                                            <FormControl>
+                                                <Button
+                                                    variant="outline"
+                                                    role="combobox"
                                                     className={cn(
-                                                        "mr-2 h-4 w-4",
-                                                        selectedPaxId === p.id ? "opacity-100" : "opacity-0"
+                                                        "w-full justify-between",
+                                                        !field.value && "text-muted-foreground"
                                                     )}
-                                                />
-                                                {p.name}
-                                            </CommandItem>
-                                        ))}
-                                    </CommandGroup>
-                                </CommandList>
-                            </Command>
-                        </PopoverContent>
-                    </Popover>
-                </div>
+                                                >
+                                                    {field.value
+                                                        ? agents.find((a) => a.id === field.value)?.name
+                                                        : "Select agent..."}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </FormControl>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[200px] p-0">
+                                            <Command>
+                                                <CommandInput placeholder="Search agent..." />
+                                                <CommandList>
+                                                    <CommandEmpty>No agent found.</CommandEmpty>
+                                                    <CommandGroup>
+                                                        {agents.map((a) => (
+                                                            <CommandItem
+                                                                value={a.name}
+                                                                key={a.id}
+                                                                onSelect={() => {
+                                                                    form.setValue("agent_id", a.id)
+                                                                    setOpenAgentCombobox(false)
+                                                                }}
+                                                            >
+                                                                <Check
+                                                                    className={cn(
+                                                                        "mr-2 h-4 w-4",
+                                                                        a.id === field.value ? "opacity-100" : "opacity-0"
+                                                                    )}
+                                                                />
+                                                                {a.name}
+                                                            </CommandItem>
+                                                        ))}
+                                                    </CommandGroup>
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
+                                    <Dialog open={newAgentOpen} onOpenChange={setNewAgentOpen}>
+                                        <DialogTrigger asChild>
+                                            <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                            <DialogHeader><DialogTitle>Add New Agent</DialogTitle></DialogHeader>
+                                            <div className="space-y-4 py-4">
+                                                <div className="space-y-2">
+                                                    <FormLabel>Agent Name</FormLabel>
+                                                    <Input value={newAgentName} onChange={(e) => setNewAgentName(e.target.value)} />
+                                                </div>
+                                                <Button onClick={handleCreateAgent} type="button" className="w-full">Create</Button>
+                                            </div>
+                                        </DialogContent>
+                                    </Dialog>
+                                </div>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
 
-                <div className="space-y-2 col-span-1">
-                    <Label>Title</Label>
-                    <Input
-                        placeholder="MR"
-                        value={paxTitle}
-                        onChange={(e) => {
-                            setPaxTitle(e.target.value.toUpperCase())
-                            if (selectedPaxId) setSelectedPaxId("")
-                        }}
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="booking_type_id"
+                        render={({ field }: { field: any }) => (
+                            <FormItem className="flex flex-col">
+                                <FormLabel>Issued From <span className="text-red-500">*</span></FormLabel>
+                                <div className="flex gap-2">
+                                    <Popover open={openTypeCombobox} onOpenChange={setOpenTypeCombobox}>
+                                        <PopoverTrigger asChild>
+                                            <FormControl>
+                                                <Button
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    className={cn(
+                                                        "w-full justify-between",
+                                                        !field.value && "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {field.value
+                                                        ? bookingTypes.find((t) => t.id === field.value)?.name
+                                                        : "Select source..."}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </FormControl>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[200px] p-0">
+                                            <Command>
+                                                <CommandInput placeholder="Search source..." />
+                                                <CommandList>
+                                                    <CommandEmpty>No source found.</CommandEmpty>
+                                                    <CommandGroup>
+                                                        {bookingTypes.map((t) => (
+                                                            <CommandItem
+                                                                value={t.name}
+                                                                key={t.id}
+                                                                onSelect={() => {
+                                                                    form.setValue("booking_type_id", t.id, { shouldValidate: true })
+                                                                    setOpenTypeCombobox(false)
+                                                                }}
+                                                            >
+                                                                <Check
+                                                                    className={cn(
+                                                                        "mr-2 h-4 w-4",
+                                                                        t.id === field.value ? "opacity-100" : "opacity-0"
+                                                                    )}
+                                                                />
+                                                                {t.name}
+                                                            </CommandItem>
+                                                        ))}
+                                                    </CommandGroup>
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
+                                    <Dialog open={newTypeOpen} onOpenChange={setNewTypeOpen}>
+                                        <DialogTrigger asChild>
+                                            <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                            <DialogHeader><DialogTitle>Add Issued From Source</DialogTitle></DialogHeader>
+                                            <div className="space-y-4 py-4">
+                                                <div className="space-y-2">
+                                                    <FormLabel>Source Name</FormLabel>
+                                                    <Input value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} />
+                                                </div>
+                                                <Button onClick={handleCreateBookingType} type="button" className="w-full">Create</Button>
+                                            </div>
+                                        </DialogContent>
+                                    </Dialog>
+                                </div>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    {selectedBookingType?.name?.trim().toUpperCase() === 'IATA' ? (
+                        <FormField<BookingFormValues>
+                            control={control}
+                            name="payment_method"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Payment Method <span className="text-red-500">*</span></FormLabel>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value as string}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select method" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="Easy Pay">Easy Pay</SelectItem>
+                                            <SelectItem value="Credit Card">Credit Card</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    ) : <div />}
+
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="platform"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Platform</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="GDS, Web..." {...field} tabIndex={8} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
                     />
                 </div>
-                <div className="space-y-2 col-span-3">
-                    <Label>Type</Label>
-                    <select
+
+                {/* Dates & Ticket Detail - Row 3 */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="ticket_issued_date"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Issued Date</FormLabel>
+                                <FormControl>
+                                    <Input type="date" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="ticket_number"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Ticket Number</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="176-..." {...field} tabIndex={20} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    {/* Origin/Dest will be moved here from lower section */}
+                </div>
+
+                {ticketStatus === 'REFUNDED' && (
+                    <div className="grid grid-cols-3 gap-4 p-4 border border-red-200 rounded-md bg-red-50 dark:bg-red-900/10">
+                        <FormField<BookingFormValues>
+                            control={control}
+                            name="refund_date"
+                            render={({ field }: { field: any }) => (
+                                <FormItem>
+                                    <FormLabel>Refund Date</FormLabel>
+                                    <FormControl>
+                                        <Input type="date" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField<BookingFormValues>
+                            control={control}
+                            name="actual_refund_amount"
+                            render={({ field }: { field: any }) => (
+                                <FormItem>
+                                    <FormLabel>Actual Refund</FormLabel>
+                                    <FormControl>
+                                        <Input type="number" step="0.01" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField<BookingFormValues>
+                            control={control}
+                            name="customer_refund_amount"
+                            render={({ field }: { field: any }) => (
+                                <FormItem>
+                                    <FormLabel>Customer Refund</FormLabel>
+                                    <FormControl>
+                                        <Input type="number" step="0.01" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    </div>
+                )}
+
+                {/* Passenger - Row 1 Generic */}
+                <FormField<BookingFormValues>
+                    control={control}
+                    name="passenger_id"
+                    render={({ field }: { field: any }) => (
+                        <FormItem className="flex flex-col">
+                            <FormLabel>Select Existing Passenger (Optional)</FormLabel>
+                            <Popover open={openPaxCombobox} onOpenChange={setOpenPaxCombobox}>
+                                <PopoverTrigger asChild>
+                                    <FormControl>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            tabIndex={12}
+                                            className={cn(
+                                                "w-full justify-between",
+                                                !field.value && "text-muted-foreground"
+                                            )}
+                                        >
+                                            {field.value
+                                                ? passengers.find((p) => p.id === field.value)?.name
+                                                : "Select passenger to auto-fill..."}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </FormControl>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[400px] p-0">
+                                    <Command>
+                                        <CommandInput placeholder="Search passenger..." />
+                                        <CommandList>
+                                            <CommandEmpty>No passenger found.</CommandEmpty>
+                                            <CommandGroup>
+                                                {passengers.map((p) => (
+                                                    <CommandItem
+                                                        value={p.name}
+                                                        key={p.id}
+                                                        onSelect={() => {
+                                                            if (p.id === field.value) {
+                                                                form.setValue("passenger_id", "")
+                                                                form.setValue("title", "")
+                                                                form.setValue("surname", "")
+                                                                form.setValue("first_name", "")
+                                                            } else {
+                                                                form.setValue("passenger_id", p.id)
+                                                            }
+                                                            setOpenPaxCombobox(false)
+                                                        }}
+                                                    >
+                                                        <Check
+                                                            className={cn(
+                                                                "mr-2 h-4 w-4",
+                                                                p.id === field.value ? "opacity-100" : "opacity-0"
+                                                            )}
+                                                        />
+                                                        {p.name}
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+
+                {/* Passenger - Row 2 Details (4 Cols) */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="title"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Title</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="MR" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} tabIndex={13} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="first_name"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>First Name</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="JOHN" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} tabIndex={17} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="surname"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Surname</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="DOE" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} tabIndex={16} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
                         name="passenger_type"
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        <option value="ADULT">ADULT</option>
-                        <option value="CHILD">CHILD</option>
-                        <option value="INFANT">INFANT</option>
-                    </select>
-                </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2">
-                    <Label>Surname</Label>
-                    <Input
-                        placeholder="DOE"
-                        value={paxSurname}
-                        onChange={(e) => {
-                            setPaxSurname(e.target.value.toUpperCase())
-                            if (selectedPaxId) setSelectedPaxId("")
-                        }}
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Type</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl>
+                                        <SelectTrigger tabIndex={14}>
+                                            <SelectValue placeholder="ADULT" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="ADULT">ADULT</SelectItem>
+                                        <SelectItem value="CHILD">CHILD</SelectItem>
+                                        <SelectItem value="INFANT">INFANT</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <FormMessage />
+                            </FormItem>
+                        )}
                     />
                 </div>
-                <div className="space-y-2">
-                    <Label>First Name</Label>
-                    <Input
-                        placeholder="JOHN"
-                        value={paxFirstName}
-                        onChange={(e) => {
-                            setPaxFirstName(e.target.value.toUpperCase())
-                            if (selectedPaxId) setSelectedPaxId("")
-                        }}
-                    />
-                </div>
-                <div className="space-y-2">
-                    <Label>Contact (Email)</Label>
-                    <Input
-                        placeholder="email@example.com"
-                        value={paxContact}
-                        name="contact_info"
-                        onChange={(e) => {
-                            setPaxContact(e.target.value)
-                            if (selectedPaxId) setSelectedPaxId("")
-                        }}
-                    />
-                </div>
-                <div className="space-y-2">
-                    <Label>Phone Number</Label>
-                    <Input
-                        name="phone_number"
-                        placeholder="+971..."
-                    />
-                </div>
-            </div>
 
-            {/* Agent and Booking Type */}
-            <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                    <Label>Agent</Label>
+                {/* Route - Row 4 */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="origin"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>From</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="DXB" {...field} tabIndex={18} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="destination"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>To</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="LHR" {...field} tabIndex={19} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="departure_date"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Departure Date</FormLabel>
+                                <FormControl>
+                                    <Input type="date" {...field} tabIndex={21} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="return_date"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Return Date</FormLabel>
+                                <FormControl>
+                                    <Input type="date" {...field} tabIndex={22} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                </div>
+
+                {/* Financials - Row 5 */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="fare"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Buying Price (Fare)</FormLabel>
+                                <FormControl>
+                                    <Input type="number" step="0.01" {...field} tabIndex={24} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="selling_price"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Selling Price</FormLabel>
+                                <FormControl>
+                                    <Input type="number" step="0.01" {...field} tabIndex={25} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="advance_payment"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Advance Payment</FormLabel>
+                                <FormControl>
+                                    <Input type="number" step="0.01" {...field} tabIndex={23} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormItem>
+                        <FormLabel>Profit (Calculated)</FormLabel>
+                        <FormControl>
+                            <Input disabled value={profit.toFixed(2)} className="bg-slate-100 dark:bg-slate-800" />
+                        </FormControl>
+                    </FormItem>
+                </div>
+
+                <div className="flex justify-between items-center mt-4">
+                    <Button variant="ghost" type="button" onClick={handleReset}>Reset / Clear</Button>
                     <div className="flex gap-2">
-                        <Popover open={openAgentCombobox} onOpenChange={setOpenAgentCombobox}>
-                            <PopoverTrigger asChild>
-                                <Button variant="outline" role="combobox" aria-expanded={openAgentCombobox} className="w-full justify-between">
-                                    {selectedAgentId ? agents.find((a) => a.id === selectedAgentId)?.name : "Select agent..."}
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[200px] p-0">
-                                <Command>
-                                    <CommandInput placeholder="Search agent..." />
-                                    <CommandList>
-                                        <CommandEmpty>No agent found.</CommandEmpty>
-                                        <CommandGroup>
-                                            {agents.map((a) => (
-                                                <CommandItem key={a.id} value={a.name} onSelect={() => { setSelectedAgentId(a.id === selectedAgentId ? "" : a.id); setOpenAgentCombobox(false) }}>
-                                                    <Check className={cn("mr-2 h-4 w-4", selectedAgentId === a.id ? "opacity-100" : "opacity-0")} />
-                                                    {a.name}
-                                                </CommandItem>
-                                            ))}
-                                        </CommandGroup>
-                                    </CommandList>
-                                </Command>
-                            </PopoverContent>
-                        </Popover>
-                        <Dialog open={newAgentOpen} onOpenChange={setNewAgentOpen}>
-                            <DialogTrigger asChild>
-                                <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogHeader><DialogTitle>Add New Agent</DialogTitle></DialogHeader>
-                                <div className="space-y-4 py-4">
-                                    <div className="space-y-2">
-                                        <Label>Agent Name</Label>
-                                        <Input value={newAgentName} onChange={(e) => setNewAgentName(e.target.value)} />
-                                    </div>
-                                    <Button onClick={handleCreateAgent} type="button" className="w-full">Create</Button>
-                                </div>
-                            </DialogContent>
-                        </Dialog>
+                        <Button variant="outline" type="button" onClick={handleReset} disabled={loading}>
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            variant="secondary"
+                            disabled={loading}
+                            tabIndex={26}
+                            onClick={() => {
+                                addMoreModeRef.current = true;
+                            }}
+                        >
+                            {loading && addMoreModeRef.current ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : "Save & Add Another"}
+                        </Button>
+                        <Button
+                            type="submit"
+                            variant="premium"
+                            disabled={loading}
+                            tabIndex={27}
+                            onClick={() => {
+                                addMoreModeRef.current = false;
+                            }}
+                        >
+                            {loading && !addMoreModeRef.current ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : "Save & Close"}
+                        </Button>
                     </div>
                 </div>
 
-                <div className="flex flex-col gap-2">
-                    <Label>Booking Type</Label>
-                    <div className="flex gap-2">
-                        <Popover open={openTypeCombobox} onOpenChange={setOpenTypeCombobox}>
-                            <PopoverTrigger asChild>
-                                <Button variant="outline" role="combobox" aria-expanded={openTypeCombobox} className="w-full justify-between">
-                                    {selectedTypeId ? bookingTypes.find((t) => t.id === selectedTypeId)?.name : "Select type..."}
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[200px] p-0">
-                                <Command>
-                                    <CommandInput placeholder="Search type..." />
-                                    <CommandList>
-                                        <CommandEmpty>No type found.</CommandEmpty>
-                                        <CommandGroup>
-                                            {bookingTypes.map((t) => (
-                                                <CommandItem key={t.id} value={t.name} onSelect={() => { setSelectedTypeId(t.id === selectedTypeId ? "" : t.id); setOpenTypeCombobox(false) }}>
-                                                    <Check className={cn("mr-2 h-4 w-4", selectedTypeId === t.id ? "opacity-100" : "opacity-0")} />
-                                                    {t.name}
-                                                </CommandItem>
-                                            ))}
-                                        </CommandGroup>
-                                    </CommandList>
-                                </Command>
-                            </PopoverContent>
-                        </Popover>
-                        <Dialog open={newTypeOpen} onOpenChange={setNewTypeOpen}>
-                            <DialogTrigger asChild>
-                                <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogHeader><DialogTitle>Add Booking Type</DialogTitle></DialogHeader>
-                                <div className="space-y-4 py-4">
-                                    <div className="space-y-2">
-                                        <Label>Type Name</Label>
-                                        <Input value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} />
-                                    </div>
-                                    <Button onClick={handleCreateBookingType} type="button" className="w-full">Create</Button>
-                                </div>
-                            </DialogContent>
-                        </Dialog>
-                    </div>
-                </div>
-            </div>
-
-            {/* Origin & Destination */}
-            <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="origin">From (Origin)</Label>
-                    <Input id="origin" name="origin" placeholder="DXB" />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="destination">To (Destination)</Label>
-                    <Input id="destination" name="destination" placeholder="LHR" />
-                </div>
-            </div>
-
-            <Label htmlFor="ticket_number">Ticket Number</Label>
-            <Input id="ticket_number" name="ticket_number" placeholder="176-..." />
-
-
-            <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="departure_date">Departure Date</Label>
-                    <Input id="departure_date" name="departure_date" type="date" required />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="return_date">Return Date</Label>
-                    <Input id="return_date" name="return_date" type="date" placeholder="Leave empty for Oneway" />
-                </div>
-            </div>
-
-            {/* Advance Payment & Profit (Calculated visually or just inputs) */}
-            <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="advance_payment">Advance Payment</Label>
-                    <Input id="advance_payment" name="advance_payment" type="number" step="0.01" placeholder="0.00" />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <Label>Profit (Calculated)</Label>
-                    <Input disabled placeholder="Auto-calculated" className="bg-slate-100 dark:bg-slate-800" />
-                </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="fare">Buying Price (Fare)</Label>
-                    <Input id="fare" name="fare" type="number" step="0.01" required />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <Label htmlFor="selling_price">Selling Price</Label>
-                    <Input id="selling_price" name="selling_price" type="number" step="0.01" required />
-                </div>
-            </div>
-
-            <div className="flex justify-between items-center mt-4">
-                <Button variant="ghost" type="button" onClick={() => window.location.reload()}>Reset / Clear</Button>
-                <div className="flex gap-2">
-                    <Button variant="outline" type="button" disabled={loading} onClick={(e) => {
-                        // Trick to submit form but with a flag
-                        const form = e.currentTarget.closest('form');
-                        if (form) {
-                            // We need to differentiate the action. 
-                            // Since we use client side handler, we can set a ref or state before submitting
-                            // But better: Just handle it in the button click? No, validation is on form.
-                            // Let's us a hidden input or just separate handler?
-                            // Actually, let's just make `handleSubmit` handle the event and we can check which button invoked it?
-                            // Or use state 'isAddMore'
-                            setLoading(true); // temporary lock
-                            form.requestSubmit(); // use native submit to trigger validation
-                        }
-                    }}>
-                        Cancel
-                    </Button>
-                    <Button type="submit" variant="secondary" disabled={loading} onClick={() => setAddMoreMode(true)}>
-                        {loading && addMoreMode ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : "Save & Add Another"}
-                    </Button>
-                    <Button type="submit" variant="premium" disabled={loading} onClick={() => setAddMoreMode(false)}>
-                        {loading && !addMoreMode ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : "Save & Close"}
-                    </Button>
-                </div>
-            </div>
-        </form >
+            </form>
+        </Form >
     )
 }
-
