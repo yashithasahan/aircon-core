@@ -3,7 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { BookingFormData } from '@/types'
+import { BookingFormData, BookingHistory } from '@/types'
 
 export async function createBooking(formData: BookingFormData) {
     const supabase = await createClient()
@@ -83,6 +83,68 @@ export async function deleteBooking(id: string) {
     }
 
     revalidatePath('/dashboard/bookings')
+}
+
+// --- Status & History ---
+
+export async function updateBookingStatus(
+    bookingId: string,
+    newStatus: string,
+    previousStatus: string,
+    details?: string
+) {
+    const supabase = await createClient()
+
+    // 1. Update booking status
+    // Logic: If REFUNDED, we might also want to set refund_date if not present? 
+    // For now, just status update. User can edit refund details separately if we build that UI, 
+    // but the request asked for status change to trigger history.
+
+    const updateData: any = { ticket_status: newStatus };
+    if (newStatus === 'REFUNDED') {
+        updateData.refund_date = new Date().toISOString();
+    }
+
+    const { error: updateError } = await supabase
+        .from('bookings')
+        .update(updateData)
+        .eq('id', bookingId)
+
+    if (updateError) throw new Error(updateError.message)
+
+    // 2. Create History Log
+    const { error: historyError } = await supabase
+        .from('booking_history')
+        .insert([{
+            booking_id: bookingId,
+            action: 'STATUS_CHANGE',
+            previous_status: previousStatus,
+            new_status: newStatus,
+            details: details
+        }])
+
+    if (historyError) {
+        console.error('Error creating history:', historyError)
+        // continue, non-fatal
+    }
+
+    revalidatePath('/dashboard/bookings')
+}
+
+export async function getBookingHistory(bookingId: string): Promise<BookingHistory[]> {
+    const supabase = await createClient()
+    const { data, error } = await supabase
+        .from('booking_history')
+        .select('*')
+        .eq('booking_id', bookingId)
+        .order('created_at', { ascending: false })
+
+    if (error) {
+        console.error('Error fetching history:', error)
+        return []
+    }
+
+    return data as BookingHistory[]
 }
 
 // --- Agents ---

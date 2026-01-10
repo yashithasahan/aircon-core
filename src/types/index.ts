@@ -27,7 +27,7 @@ export interface Booking {
     passenger_id?: string; // FK
 
     // New fields
-    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED';
+    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'CANCELED';
     ticket_issued_date?: string;
     advance_payment?: number;
     platform?: string;
@@ -65,3 +65,13 @@ export interface Passenger {
 }
 
 export type BookingFormData = Omit<Booking, "id" | "created_at" | "profit" | "agent" | "booking_type">;
+
+export interface BookingHistory {
+    id: string;
+    booking_id: string;
+    action: string;
+    previous_status?: string;
+    new_status?: string;
+    details?: string;
+    created_at: string;
+}
