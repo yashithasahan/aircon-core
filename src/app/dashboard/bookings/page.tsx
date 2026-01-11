@@ -8,14 +8,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Plus, Search, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { BookingForm } from "@/components/passengers/booking-form";
+import { NewBookingDialog } from "@/components/passengers/new-booking-dialog";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
+
 } from "@/components/ui/dialog";
 import { getBookings, deleteBooking, getAgents, getBookingTypes } from "./actions";
 import { BookingsTable } from "@/components/dashboard/bookings-table";
@@ -46,27 +41,12 @@ export default async function BookingsPage({
                 </h1>
                 <div className="flex items-center gap-2">
                     {/* Add Booking Dialog */}
-                    <Dialog>
-                        <DialogTrigger asChild>
-                            <Button variant="premium" className="shadow-lg shadow-blue-500/20">
-                                <Plus className="mr-2 h-4 w-4" />
-                                New Booking
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
-                            <DialogHeader>
-                                <DialogTitle>Create New Booking</DialogTitle>
-                                <DialogDescription>
-                                    Enter the passenger and flight details below.
-                                </DialogDescription>
-                            </DialogHeader>
-                            <BookingForm
-                                passengers={passengers}
-                                agents={agents}
-                                bookingTypes={bookingTypes}
-                            />
-                        </DialogContent>
-                    </Dialog>
+                    {/* Add Booking Dialog */}
+                    <NewBookingDialog
+                        passengers={passengers}
+                        agents={agents}
+                        bookingTypes={bookingTypes}
+                    />
                 </div>
             </div>
 

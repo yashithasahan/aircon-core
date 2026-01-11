@@ -92,7 +92,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                         bookings.map((booking) => (
                             <TableRow
                                 key={booking.id}
-                                className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors border-slate-100 dark:border-slate-800"
+                                className="cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-900/10 hover:shadow-sm hover:border-blue-200 dark:hover:border-blue-800 transition-all duration-200 border-slate-100 dark:border-slate-800"
                                 onClick={() => handleRowClick(booking)}
                             >
                                 <TableCell>
@@ -157,7 +157,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
 
             {/* Edit Booking Modal */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+                <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Edit Booking</DialogTitle>
                         <DialogDescription>
@@ -172,6 +172,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                             initialData={editBooking}
                             bookingId={editBooking.id}
                             onSuccess={handleEditSuccess}
+                            onCancel={() => setIsEditOpen(false)}
                         />
                     )}
                 </DialogContent>

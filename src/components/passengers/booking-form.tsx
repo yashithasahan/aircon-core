@@ -122,9 +122,10 @@ interface BookingFormProps {
     initialData?: any // Can be Booking type but might need reshaping
     bookingId?: string
     onSuccess?: () => void
+    onCancel?: () => void
 }
 
-export function BookingForm({ passengers, agents = [], bookingTypes = [], initialData, bookingId, onSuccess }: BookingFormProps) {
+export function BookingForm({ passengers, agents = [], bookingTypes = [], initialData, bookingId, onSuccess, onCancel }: BookingFormProps) {
     const [loading, setLoading] = useState(false)
     const [addMoreMode, setAddMoreMode] = useState(false)
 
@@ -370,7 +371,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>PNR (Reference)</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="ABC1234" {...field} autoFocus tabIndex={1} />
+                                    <Input placeholder="ABC1234" {...field} autoFocus />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -396,7 +397,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Airline</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="EK" {...field} tabIndex={5} />
+                                    <Input placeholder="EK" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -408,9 +409,9 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                         render={({ field }: { field: any }) => (
                             <FormItem>
                                 <FormLabel>Ticket Status</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <Select onValueChange={field.onChange} value={field.value} disabled={!!bookingId}>
                                     <FormControl>
-                                        <SelectTrigger tabIndex={6}>
+                                        <SelectTrigger>
                                             <SelectValue placeholder="Select status" />
                                         </SelectTrigger>
                                     </FormControl>
@@ -586,7 +587,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Payment Method <span className="text-red-500">*</span></FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value as string}>
+                                    <Select onValueChange={field.onChange} value={field.value as string}>
                                         <FormControl>
                                             <SelectTrigger>
                                                 <SelectValue placeholder="Select method" />
@@ -610,7 +611,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Platform</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="GDS, Web..." {...field} tabIndex={8} />
+                                    <Input placeholder="GDS, Web..." {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -640,7 +641,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Ticket Number</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="176-..." {...field} tabIndex={20} />
+                                    <Input placeholder="176-..." {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -706,7 +707,6 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                                         <Button
                                             variant="outline"
                                             role="combobox"
-                                            tabIndex={12}
                                             className={cn(
                                                 "w-full justify-between",
                                                 !field.value && "text-muted-foreground"
@@ -769,7 +769,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Title</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="MR" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} tabIndex={13} />
+                                    <Input placeholder="MR" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -782,7 +782,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>First Name</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="JOHN" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} tabIndex={17} />
+                                    <Input placeholder="JOHN" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -795,7 +795,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Surname</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="DOE" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} tabIndex={16} />
+                                    <Input placeholder="DOE" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -807,9 +807,9 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                         render={({ field }: { field: any }) => (
                             <FormItem>
                                 <FormLabel>Type</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <Select onValueChange={field.onChange} value={field.value}>
                                     <FormControl>
-                                        <SelectTrigger tabIndex={14}>
+                                        <SelectTrigger>
                                             <SelectValue placeholder="ADULT" />
                                         </SelectTrigger>
                                     </FormControl>
@@ -834,7 +834,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>From</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="DXB" {...field} tabIndex={18} />
+                                    <Input placeholder="DXB" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -847,7 +847,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>To</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="LHR" {...field} tabIndex={19} />
+                                    <Input placeholder="LHR" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -860,7 +860,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Departure Date</FormLabel>
                                 <FormControl>
-                                    <Input type="date" {...field} tabIndex={21} />
+                                    <Input type="date" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -873,7 +873,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Return Date</FormLabel>
                                 <FormControl>
-                                    <Input type="date" {...field} tabIndex={22} />
+                                    <Input type="date" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -890,7 +890,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Buying Price (Fare)</FormLabel>
                                 <FormControl>
-                                    <Input type="number" step="0.01" {...field} tabIndex={24} />
+                                    <Input type="number" step="0.01" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -903,7 +903,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Selling Price</FormLabel>
                                 <FormControl>
-                                    <Input type="number" step="0.01" {...field} tabIndex={25} />
+                                    <Input type="number" step="0.01" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -916,7 +916,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             <FormItem>
                                 <FormLabel>Advance Payment</FormLabel>
                                 <FormControl>
-                                    <Input type="number" step="0.01" {...field} tabIndex={23} />
+                                    <Input type="number" step="0.01" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -933,14 +933,13 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                 <div className="flex justify-between items-center mt-4">
                     <Button variant="ghost" type="button" onClick={handleReset}>Reset / Clear</Button>
                     <div className="flex gap-2">
-                        <Button variant="outline" type="button" onClick={handleReset} disabled={loading}>
+                        <Button variant="outline" type="button" onClick={onCancel || handleReset} disabled={loading}>
                             Cancel
                         </Button>
                         <Button
                             type="submit"
                             variant="secondary"
                             disabled={loading}
-                            tabIndex={26}
                             onClick={() => {
                                 addMoreModeRef.current = true;
                             }}
@@ -951,7 +950,6 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                             type="submit"
                             variant="premium"
                             disabled={loading}
-                            tabIndex={27}
                             onClick={() => {
                                 addMoreModeRef.current = false;
                             }}

@@ -10,29 +10,31 @@ export async function createBooking(formData: BookingFormData) {
 
     // 1. Check for Duplicate Ticket Number (if provided)
     if (formData.ticket_number && formData.ticket_number.trim() !== '') {
-        const { data: existingTickets } = await supabase
+        const { data: existingTicketBookings } = await supabase
             .from('bookings')
-            .select('id')
+            .select('id, pnr')
             .eq('ticket_number', formData.ticket_number.trim())
-            .neq('ticket_status', 'CANCELED') // Optional: allow reusing ticket number if previous was canceled? Usually no, but maybe VOID. keeping strict for now.
 
-        if (existingTickets && existingTickets.length > 0) {
-            throw new Error(`A booking with Ticket Number ${formData.ticket_number} already exists.`)
+        if (existingTicketBookings && existingTicketBookings.length > 0) {
+            // Rule: Ticket Number can be reused ONLY if it belongs to the SAME PNR.
+            // If it is used on a DIFFERENT PNR, it's a duplicate error.
+            const differentPnrBooking = existingTicketBookings.find(b => b.pnr !== formData.pnr);
+            if (differentPnrBooking) {
+                throw new Error(`Ticket Number ${formData.ticket_number} is already used on a different PNR (${differentPnrBooking.pnr}).`);
+            }
         }
     }
 
-    // 2. Check for Duplicate PNR + Passenger Name combo
-    // We check pax_name because passenger_id might be new for the same actual person
-    if (formData.pnr && formData.pax_name) {
-        const { data: existingBookings } = await supabase
+    // 2. Check for Duplicate PNR + Status combo (ignoring name)
+    if (formData.pnr) {
+        const { data: existingPnrBookings } = await supabase
             .from('bookings')
             .select('id')
             .eq('pnr', formData.pnr.trim())
-            .ilike('pax_name', formData.pax_name.trim()) // Case insensitive check
-            .neq('ticket_status', 'CANCELED') // Allow re-booking if previous was canceled
+            .eq('ticket_status', formData.ticket_status)
 
-        if (existingBookings && existingBookings.length > 0) {
-            throw new Error(`Passenger ${formData.pax_name} is already booked on PNR ${formData.pnr}.`)
+        if (existingPnrBookings && existingPnrBookings.length > 0) {
+            throw new Error(`A booking with PNR ${formData.pnr} and status ${formData.ticket_status} already exists.`);
         }
     }
 
@@ -86,16 +88,33 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
     // We skip duplicate checks for now because the user might just be correcting a typo.
     // However, if they change the ticket number to one that already exists (and isn't this booking), we should block it.
+    // 1. Check for Duplicate Ticket Number
     if (formData.ticket_number && formData.ticket_number.trim() !== '') {
-        const { data: existingTickets } = await supabase
+        const { data: existingTicketBookings } = await supabase
+            .from('bookings')
+            .select('id, pnr')
+            .eq('ticket_number', formData.ticket_number.trim())
+            .neq('id', id)
+
+        if (existingTicketBookings && existingTicketBookings.length > 0) {
+            const differentPnrBooking = existingTicketBookings.find(b => b.pnr !== formData.pnr);
+            if (differentPnrBooking) {
+                throw new Error(`Ticket Number ${formData.ticket_number} is already used on a different PNR (${differentPnrBooking.pnr}).`);
+            }
+        }
+    }
+
+    // 2. Check for Duplicate PNR + Status
+    if (formData.pnr) {
+        const { data: existingPnrBookings } = await supabase
             .from('bookings')
             .select('id')
-            .eq('ticket_number', formData.ticket_number.trim())
-            .neq('id', id) // Exclude current booking
-            .neq('ticket_status', 'CANCELED')
+            .eq('pnr', formData.pnr.trim())
+            .eq('ticket_status', formData.ticket_status)
+            .neq('id', id)
 
-        if (existingTickets && existingTickets.length > 0) {
-            throw new Error(`A booking with Ticket Number ${formData.ticket_number} already exists.`)
+        if (existingPnrBookings && existingPnrBookings.length > 0) {
+            throw new Error(`A booking with PNR ${formData.pnr} and status ${formData.ticket_status} already exists.`);
         }
     }
 
@@ -153,15 +172,21 @@ export async function getBookings(query?: string) {
         `)
 
     if (query) {
-        dbQuery = dbQuery.or(`pnr.ilike.%${query}%,ticket_number.ilike.%${query}%,pax_name.ilike.%${query}%`)
+        // Sanitize query to prevent breaking PostgREST 'or' syntax (commas are separators)
+        const sanitizedQuery = query.replace(/,/g, ' ').trim();
+        if (sanitizedQuery) {
+            dbQuery = dbQuery.or(`pnr.ilike.%${sanitizedQuery}%,ticket_number.ilike.%${sanitizedQuery}%,pax_name.ilike.%${sanitizedQuery}%,airline.ilike.%${sanitizedQuery}%,ticket_status.ilike.%${sanitizedQuery}%`)
+        }
     }
 
     const { data, error } = await dbQuery.order('created_at', { ascending: false })
 
     if (error) {
-        console.error('Fetch error:', error)
+        console.error('Fetch error in getBookings:', error)
         return []
     }
+
+    console.log("Search results count:", data?.length);
 
     return data
 }
@@ -273,4 +298,69 @@ export async function createBookingType(name: string) {
     const { data, error } = await supabase.from('booking_types').insert([{ name }]).select().single()
     if (error) return { error: error.message }
     return { data }
+}
+
+export async function cloneBookingWithNewStatus(originalBookingId: string, newStatus: string) {
+    const supabase = await createClient()
+
+    // 1. Fetch original booking
+    const { data: original, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('id', originalBookingId)
+        .single()
+
+    if (error || !original) {
+        throw new Error("Original booking not found")
+    }
+
+    // 2. Prepare new data (omit generated fields)
+    const newBookingData: BookingFormData = {
+        pnr: original.pnr,
+        pax_name: original.pax_name,
+        ticket_number: original.ticket_number || undefined,
+
+        airline: original.airline, // Assuming mandatory in DB but optional in type? Check type.
+        entry_date: new Date().toISOString().split('T')[0], // Use TODAY as entry date for the new status record? Or keep original? Usually status change happens NOW.
+        // User wants "two bookings with pnr with diffrent satus". 
+        // Likely wants to track WHEN it became refunded. So entry_date = today seems appropriate for a "transaction log" style.
+        // But let's stick to original entry date if it represents flight date? No, entry_date is usually booking date. 
+        // I will use original entry_date to keep it grouped, unless user specified otherwise. 
+        // Wait, "entry_date" usually means when the booking was entered. If I clone, it's a new entry.
+        // I will use NOW for created_at (handled by DB) but `entry_date` field might be specific.
+        // Let's copy original entry_date for consistency of the "Trip", or use current date for the "Action". 
+        // Given it's a "Clone", I'll copy the original values to represent the same "Trip/Deal", just different state.
+        // EXCEPT ticket_status.
+
+        departure_date: original.departure_date,
+        return_date: original.return_date,
+
+        fare: original.fare,
+        selling_price: original.selling_price,
+        // profit is calculated, so omitted
+
+        payment_status: original.payment_status,
+        passenger_id: original.passenger_id,
+
+        origin: original.origin,
+        destination: original.destination,
+        agent_id: original.agent_id,
+        booking_type_id: original.booking_type_id,
+
+        ticket_status: newStatus as 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'CANCELED', // THE CHANGE
+        ticket_issued_date: original.ticket_issued_date, // Keep original issue date?
+        advance_payment: original.advance_payment,
+        platform: original.platform,
+        payment_method: original.payment_method,
+
+        // Refund Logic
+        refund_date: newStatus === 'REFUNDED' ? new Date().toISOString() : original.refund_date,
+        actual_refund_amount: original.actual_refund_amount,
+        customer_refund_amount: original.customer_refund_amount,
+    }
+
+    // 3. Call createBooking (reuses validation for Duplicate PNR+Status, etc)
+    // Note: createBooking expects BookingFormData.
+    // My constructed object matches.
+    await createBooking(newBookingData);
 }
