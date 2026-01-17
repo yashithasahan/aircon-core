@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, DollarSign, Plane, TrendingUp } from "lucide-react";
-import { getDashboardStats, getRecentSales } from "./actions";
+import { getDashboardStats, getRecentSales, getAgentCreditStats } from "./actions";
 
 import { MonthSelector } from "@/components/dashboard/month-selector";
 import { format } from "date-fns";
@@ -13,6 +13,7 @@ export default async function DashboardPage({
     const { date: dateParam } = await searchParams;
     const stats = await getDashboardStats(dateParam);
     const recentSales = await getRecentSales();
+    const agentCredits = await getAgentCreditStats();
 
     // Calculate display label for current selection
     const displayDate = dateParam
@@ -96,6 +97,31 @@ export default async function DashboardPage({
                         </p>
                     </CardContent>
                 </Card>
+            </div>
+
+            {/* Agent Credits Section */}
+            <div>
+                <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-4">Agent Credits & Balances</h3>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    {agentCredits.map((agent) => (
+                        <Card key={agent.id} className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                                    {agent.name}
+                                </CardTitle>
+                                <div className={agent.balance < 500 ? "text-red-500" : "text-emerald-500"}>
+                                    €{Number(agent.balance).toLocaleString()}
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold text-slate-900 dark:text-white">{agent.todayCount}</div>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Tickets issued today
+                                </p>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
             </div>
 
             {/* Recent Activity */}

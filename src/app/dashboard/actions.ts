@@ -61,3 +61,36 @@ export async function getRecentSales() {
 
     return recent
 }
+
+export async function getAgentCreditStats() {
+    const supabase = await createClient()
+
+    // Get all types
+    const { data: types, error } = await supabase
+        .from('booking_types')
+        .select('id, name, balance')
+        .order('name')
+
+    if (error || !types) return []
+
+    // For each, get count of VALID tickets issued TODAY
+    // We define "Today" based on server time or entry_date? 
+    // Usually entry_date is the business date. Let's use entry_date = current YYYY-MM-DD.
+    const today = new Date().toISOString().split('T')[0]
+
+    const stats = await Promise.all(types.map(async (type) => {
+        const { count, error: countError } = await supabase
+            .from('bookings')
+            .select('*', { count: 'exact', head: true }) // count only
+            .eq('booking_type_id', type.id)
+            .eq('ticket_status', 'ISSUED')
+            .eq('entry_date', today)
+
+        return {
+            ...type,
+            todayCount: count || 0
+        }
+    }))
+
+    return stats
+}

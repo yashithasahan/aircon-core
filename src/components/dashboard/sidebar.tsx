@@ -47,6 +47,11 @@ const sidebarItems = [
         icon: CreditCard,
     },
     {
+        title: "Credits",
+        href: "/dashboard/credits",
+        icon: CreditCard, // Reusing icon or import Wallet/Coins? Let's use CreditCard for now or Import specific.
+    },
+    {
         title: "Settings",
         href: "/dashboard/settings",
         icon: Settings,

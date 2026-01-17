@@ -8,6 +8,8 @@ export interface BookingType {
     id: string;
     created_at: string;
     name: string;
+    balance: number;
+    daily_ticket_count: number;
 }
 
 export interface Booking {
@@ -74,5 +76,14 @@ export interface BookingHistory {
     previous_status?: string;
     new_status?: string;
     details?: string;
+    created_at: string;
+}
+export interface CreditTransaction {
+    id: string;
+    booking_type_id: string;
+    amount: number;
+    transaction_type: 'TOPUP' | 'BOOKING_DEDUCTION' | 'REFUND' | 'ADJUSTMENT';
+    reference_id?: string;
+    description?: string;
     created_at: string;
 }

@@ -38,6 +38,38 @@ export async function createBooking(formData: BookingFormData) {
         }
     }
 
+    // 3. Credit Check & Deduction
+    if (formData.ticket_status === 'ISSUED' && formData.booking_type_id) {
+        const { data: bookingType, error: btError } = await supabase
+            .from('booking_types')
+            .select('balance, name')
+            .eq('id', formData.booking_type_id)
+            .single()
+
+        if (btError || !bookingType) throw new Error('Invalid Issued From source.')
+
+        const cost = Number(formData.fare) || 0
+        if (cost > Number(bookingType.balance)) {
+            throw new Error(`Insufficient funds in ${bookingType.name}. Required: ${cost}, Available: ${bookingType.balance}`)
+        }
+
+        const newBalance = Number(bookingType.balance) - cost
+        const { error: balError } = await supabase
+            .from('booking_types')
+            .update({ balance: newBalance })
+            .eq('id', formData.booking_type_id)
+
+        if (balError) throw new Error('Failed to update credit balance.')
+
+        await supabase.from('credit_transactions').insert([{
+            booking_type_id: formData.booking_type_id,
+            amount: -cost,
+            transaction_type: 'BOOKING_DEDUCTION',
+            description: `Booking issuance for PNR ${formData.pnr}`,
+            reference_id: null
+        }])
+    }
+
     const { error } = await supabase
         .from('bookings')
         .insert([
@@ -81,6 +113,8 @@ export async function createBooking(formData: BookingFormData) {
     }
 
     revalidatePath('/dashboard/bookings')
+    revalidatePath('/dashboard')
+    revalidatePath('/dashboard/credits')
 }
 
 export async function updateBooking(id: string, formData: BookingFormData) {
@@ -115,6 +149,46 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
         if (existingPnrBookings && existingPnrBookings.length > 0) {
             throw new Error(`A booking with PNR ${formData.pnr} and status ${formData.ticket_status} already exists.`);
+        }
+    }
+
+    // 3. Credit Check for Status Change
+    const { data: currentBooking } = await supabase
+        .from('bookings')
+        .select('ticket_status, booking_type_id') // Removed alias to keep it simple
+        .eq('id', id)
+        .single()
+
+    if (currentBooking) {
+        if (currentBooking.ticket_status !== 'ISSUED' && formData.ticket_status === 'ISSUED') {
+            const typeId = formData.booking_type_id || currentBooking.booking_type_id;
+            if (typeId) {
+                const { data: bookingType } = await supabase
+                    .from('booking_types')
+                    .select('balance, name')
+                    .eq('id', typeId)
+                    .single()
+
+                if (bookingType) {
+                    const cost = Number(formData.fare) || 0;
+                    if (cost > Number(bookingType.balance)) {
+                        throw new Error(`Insufficient funds in ${bookingType.name}. Required: ${cost}, Available: ${bookingType.balance}`)
+                    }
+
+                    await supabase
+                        .from('booking_types')
+                        .update({ balance: Number(bookingType.balance) - cost })
+                        .eq('id', typeId)
+
+                    await supabase.from('credit_transactions').insert([{
+                        booking_type_id: typeId,
+                        amount: -cost,
+                        transaction_type: 'BOOKING_DEDUCTION',
+                        description: `Booking issuance (update) for PNR ${formData.pnr}`,
+                        reference_id: id
+                    }])
+                }
+            }
         }
     }
 
@@ -157,6 +231,8 @@ export async function updateBooking(id: string, formData: BookingFormData) {
     }
 
     revalidatePath('/dashboard/bookings')
+    revalidatePath('/dashboard')
+    revalidatePath('/dashboard/credits')
 }
 
 
