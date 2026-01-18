@@ -45,7 +45,7 @@ export async function topUpCredit(bookingTypeId: string, amount: number, descrip
         // For this MVP, we log error but don't rollback (manual intervention needed if log fails).
     }
 
-    revalidatePath('/dashboard/credits')
+    revalidatePath('/dashboard/payments')
     revalidatePath('/dashboard') // Update stats
 }
 

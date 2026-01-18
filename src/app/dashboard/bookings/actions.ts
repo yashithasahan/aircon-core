@@ -114,7 +114,7 @@ export async function createBooking(formData: BookingFormData) {
 
     revalidatePath('/dashboard/bookings')
     revalidatePath('/dashboard')
-    revalidatePath('/dashboard/credits')
+    revalidatePath('/dashboard/payments')
 }
 
 export async function updateBooking(id: string, formData: BookingFormData) {
@@ -232,7 +232,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
     revalidatePath('/dashboard/bookings')
     revalidatePath('/dashboard')
-    revalidatePath('/dashboard/credits')
+    revalidatePath('/dashboard/payments')
 }
 
 
