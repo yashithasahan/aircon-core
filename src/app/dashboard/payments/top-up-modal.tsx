@@ -18,11 +18,13 @@ import { toast } from "sonner"
 import { topUpCredit } from "./actions"
 
 interface TopUpModalProps {
-    bookingTypeId: string
-    bookingTypeName: string
+    id: string
+    name: string
+    type: 'booking_type' | 'agent'
+    buttonLabel?: string
 }
 
-export function TopUpModal({ bookingTypeId, bookingTypeName }: TopUpModalProps) {
+export function TopUpModal({ id, name, type, buttonLabel = "Top Up" }: TopUpModalProps) {
     const [open, setOpen] = useState(false)
     const [amount, setAmount] = useState("")
     const [loading, setLoading] = useState(false)
@@ -35,12 +37,12 @@ export function TopUpModal({ bookingTypeId, bookingTypeName }: TopUpModalProps) 
 
         setLoading(true)
         try {
-            await topUpCredit(bookingTypeId, Number(amount), `Manual Top Up via Dashboard`)
-            toast.success(`Successfully topped up €${amount} to ${bookingTypeName}`)
+            await topUpCredit(id, type, Number(amount), `Manual ${buttonLabel} via Dashboard`)
+            toast.success(`Successfully added €${amount} to ${name}`)
             setOpen(false)
             setAmount("")
         } catch (error: any) {
-            toast.error(error.message || "Failed to top up")
+            toast.error(error.message || "Failed to process")
         } finally {
             setLoading(false)
         }
@@ -51,14 +53,14 @@ export function TopUpModal({ bookingTypeId, bookingTypeName }: TopUpModalProps) 
             <DialogTrigger asChild>
                 <Button size="sm" variant="outline" className="gap-1">
                     <Plus className="h-4 w-4" />
-                    Top Up
+                    {buttonLabel}
                 </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                    <DialogTitle>Top Up {bookingTypeName}</DialogTitle>
+                    <DialogTitle>{buttonLabel} for {name}</DialogTitle>
                     <DialogDescription>
-                        Add funds to this account balance. This will allow issuing more tickets.
+                        Add funds/payments to this account. This will update the available balance.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
@@ -80,7 +82,7 @@ export function TopUpModal({ bookingTypeId, bookingTypeName }: TopUpModalProps) 
                 <DialogFooter>
                     <Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
                     <Button type="submit" onClick={handleTopUp} disabled={loading}>
-                        {loading ? "Processing..." : "Confirm Top Up"}
+                        {loading ? "Processing..." : `Confirm ${buttonLabel}`}
                     </Button>
                 </DialogFooter>
             </DialogContent>
