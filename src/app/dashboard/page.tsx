@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, DollarSign, Plane, TrendingUp } from "lucide-react";
-import { getDashboardStats, getRecentSales, getAgentCreditStats } from "./actions";
+import { Users, DollarSign, Plane, TrendingUp, CreditCard, Wallet } from "lucide-react";
+import { getDashboardStats, getRecentSales, getAgentCreditStats, getFinancialSummary } from "./actions";
 
 import { MonthSelector } from "@/components/dashboard/month-selector";
 import { format } from "date-fns";
@@ -14,6 +14,7 @@ export default async function DashboardPage({
     const stats = await getDashboardStats(dateParam);
     const recentSales = await getRecentSales();
     const agentCredits = await getAgentCreditStats();
+    const portfolio = await getFinancialSummary();
 
     // Calculate display label for current selection
     const displayDate = dateParam
@@ -36,7 +37,7 @@ export default async function DashboardPage({
             </div>
 
             {/* Summary Cards */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
                 <Card className="border-0 shadow-md bg-gradient-to-br from-blue-500 to-blue-600 text-white">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-blue-100">
@@ -85,15 +86,33 @@ export default async function DashboardPage({
                 <Card className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                            Passengers
+                            Partner Net Balance
                         </CardTitle>
-                        <Users className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+                        <Wallet className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                     </CardHeader>
                     <CardContent>
-                        {/* Assuming 1 pax per booking for now, or sum if we had a pax count column */}
-                        <div className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalBookings}</div>
+                        <div className={`text-2xl font-bold ${portfolio.totalPartnerBalance < 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}`}>
+                            €{portfolio.totalPartnerBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Total passengers
+                            Total issuing funds
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                            Agent Receivables
+                        </CardTitle>
+                        <CreditCard className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-red-500">
+                            €{portfolio.totalAgentDebt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Total agent debt
                         </p>
                     </CardContent>
                 </Card>

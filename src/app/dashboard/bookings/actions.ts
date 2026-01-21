@@ -38,36 +38,66 @@ export async function createBooking(formData: BookingFormData) {
         }
     }
 
-    // 3. Credit Check & Deduction
-    if (formData.ticket_status === 'ISSUED' && formData.booking_type_id) {
-        const { data: bookingType, error: btError } = await supabase
-            .from('booking_types')
-            .select('balance, name')
-            .eq('id', formData.booking_type_id)
-            .single()
-
-        if (btError || !bookingType) throw new Error('Invalid Issued From source.')
-
+    // 3. Credit Check & Deduction / Debt Accumulation
+    if (formData.ticket_status === 'ISSUED' && formData.currency !== 'LKR') {
         const cost = Number(formData.fare) || 0
-        if (cost > Number(bookingType.balance)) {
-            throw new Error(`Insufficient funds in ${bookingType.name}. Required: ${cost}, Available: ${bookingType.balance}`)
+        const price = Number(formData.selling_price) || 0
+
+        // A. Issuing Partner Logic (Prepaid - Deduct Buying Price)
+        if (formData.booking_type_id) {
+            const { data: bookingType, error: btError } = await supabase
+                .from('booking_types')
+                .select('balance, name')
+                .eq('id', formData.booking_type_id)
+                .single()
+
+            if (btError || !bookingType) throw new Error('Invalid Issued From source.')
+
+            // Removed "Insufficient Funds" check as requested - balance can go negative (Red)
+
+            const newBalance = Number(bookingType.balance) - cost
+            const { error: balError } = await supabase
+                .from('booking_types')
+                .update({ balance: newBalance })
+                .eq('id', formData.booking_type_id)
+
+            if (balError) throw new Error('Failed to update credit balance.')
+
+            await supabase.from('credit_transactions').insert([{
+                booking_type_id: formData.booking_type_id,
+                amount: -cost,
+                transaction_type: 'BOOKING_DEDUCTION',
+                description: `Booking issuance for PNR ${formData.pnr}`,
+                reference_id: null
+            }])
         }
 
-        const newBalance = Number(bookingType.balance) - cost
-        const { error: balError } = await supabase
-            .from('booking_types')
-            .update({ balance: newBalance })
-            .eq('id', formData.booking_type_id)
+        // B. Agent Logic (Credit/Debt - Add Selling Price to Balance)
+        if (formData.agent_id) {
+            const { data: agent, error: agError } = await supabase
+                .from('agents')
+                .select('balance, name')
+                .eq('id', formData.agent_id)
+                .single()
 
-        if (balError) throw new Error('Failed to update credit balance.')
+            if (!agError && agent) {
+                // Agent Balance = Debt. Issuing a ticket INCREASES debt.
+                const newAgentBalance = Number(agent.balance) + price;
 
-        await supabase.from('credit_transactions').insert([{
-            booking_type_id: formData.booking_type_id,
-            amount: -cost,
-            transaction_type: 'BOOKING_DEDUCTION',
-            description: `Booking issuance for PNR ${formData.pnr}`,
-            reference_id: null
-        }])
+                await supabase
+                    .from('agents')
+                    .update({ balance: newAgentBalance })
+                    .eq('id', formData.agent_id)
+
+                await supabase.from('credit_transactions').insert([{
+                    agent_id: formData.agent_id,
+                    amount: price, // Positive amount adds to debt
+                    transaction_type: 'BOOKING_DEDUCTION', // Still technically a deduction from "credit limit" perspective, or "Booking Charge"
+                    description: `Booking issuance for PNR ${formData.pnr}`,
+                    reference_id: null
+                }])
+            }
+        }
     }
 
     const { error } = await supabase
@@ -103,7 +133,8 @@ export async function createBooking(formData: BookingFormData) {
                 actual_refund_amount: formData.actual_refund_amount,
                 customer_refund_amount: formData.customer_refund_amount,
 
-                payment_method: formData.payment_method || null
+                payment_method: formData.payment_method || null,
+                currency: formData.currency || 'EUR'
             }
         ])
 
@@ -155,12 +186,17 @@ export async function updateBooking(id: string, formData: BookingFormData) {
     // 3. Credit Check for Status Change
     const { data: currentBooking } = await supabase
         .from('bookings')
-        .select('ticket_status, booking_type_id') // Removed alias to keep it simple
+        .select('ticket_status, booking_type_id, agent_id, currency')
         .eq('id', id)
         .single()
 
     if (currentBooking) {
-        if (currentBooking.ticket_status !== 'ISSUED' && formData.ticket_status === 'ISSUED') {
+        // Only trigger if status changing to ISSUED and currency is not LKR (or if currency changed to non-LKR, but let's assume currency doesn't change on invalid status)
+        const effectiveCurrency = formData.currency || currentBooking.currency || 'EUR';
+
+        if (currentBooking.ticket_status !== 'ISSUED' && formData.ticket_status === 'ISSUED' && effectiveCurrency !== 'LKR') {
+
+            // A. Partner Deduction
             const typeId = formData.booking_type_id || currentBooking.booking_type_id;
             if (typeId) {
                 const { data: bookingType } = await supabase
@@ -171,9 +207,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
                 if (bookingType) {
                     const cost = Number(formData.fare) || 0;
-                    if (cost > Number(bookingType.balance)) {
-                        throw new Error(`Insufficient funds in ${bookingType.name}. Required: ${cost}, Available: ${bookingType.balance}`)
-                    }
+                    // Removed insufficient funds check
 
                     await supabase
                         .from('booking_types')
@@ -183,6 +217,34 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                     await supabase.from('credit_transactions').insert([{
                         booking_type_id: typeId,
                         amount: -cost,
+                        transaction_type: 'BOOKING_DEDUCTION',
+                        description: `Booking issuance (update) for PNR ${formData.pnr}`,
+                        reference_id: id
+                    }])
+                }
+            }
+
+            // B. Agent Debt
+            const agentId = formData.agent_id || currentBooking.agent_id;
+            if (agentId) {
+                const { data: agent } = await supabase
+                    .from('agents')
+                    .select('balance, name')
+                    .eq('id', agentId)
+                    .single()
+
+                if (agent) {
+                    const price = Number(formData.selling_price) || 0;
+                    const newAgentBalance = Number(agent.balance) + price;
+
+                    await supabase
+                        .from('agents')
+                        .update({ balance: newAgentBalance })
+                        .eq('id', agentId)
+
+                    await supabase.from('credit_transactions').insert([{
+                        agent_id: agentId,
+                        amount: price,
                         transaction_type: 'BOOKING_DEDUCTION',
                         description: `Booking issuance (update) for PNR ${formData.pnr}`,
                         reference_id: id

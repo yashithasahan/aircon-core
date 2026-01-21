@@ -34,6 +34,7 @@ export interface Booking {
     advance_payment?: number;
     platform?: string;
     payment_method?: string; // e.g. 'Easy Pay', 'Credit Card'
+    currency?: 'EUR' | 'LKR';
 
     // Refund fields
     refund_date?: string;

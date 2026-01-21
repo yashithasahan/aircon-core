@@ -93,6 +93,7 @@ const bookingFormSchema = z.object({
     customer_refund_amount: z.coerce.number().optional(),
 
     payment_method: z.enum(["Easy Pay", "Credit Card"]).optional(),
+    currency: z.enum(["EUR", "LKR"]).default("EUR"),
 }).superRefine((data, ctx) => {
     // If ticket status is REFUNDED, require refund date
     if (data.ticket_status === 'REFUNDED' && !data.refund_date) {
@@ -209,6 +210,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
         refund_date: initialData?.refund_date ? initialData.refund_date.split('T')[0] : "",
         actual_refund_amount: initialData?.actual_refund_amount || 0,
         customer_refund_amount: initialData?.customer_refund_amount || 0,
+        currency: initialData?.currency || "EUR",
     }
 
     const form = useForm<BookingFormValues>({
@@ -882,7 +884,28 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                 </div>
 
                 {/* Financials - Row 5 */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="currency"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Currency</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <FormControl>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="EUR" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="EUR">EUR</SelectItem>
+                                        <SelectItem value="LKR">LKR</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
                     <FormField<BookingFormValues>
                         control={control}
                         name="fare"

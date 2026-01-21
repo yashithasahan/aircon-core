@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { TopUpModal } from "./top-up-modal";
+import { TransactionHistoryModal } from "./transaction-history-modal";
 
 interface BalanceCardsViewProps {
     items: any[]
@@ -26,19 +27,29 @@ export function BalanceCardsView({ items, type, buttonLabel = "Top Up" }: Balanc
                                 buttonLabel={buttonLabel}
                             />
                         </CardHeader>
-                        <CardContent>
-                            <div className="mt-4">
-                                <div className="text-sm font-medium text-slate-500 dark:text-slate-400">Current Balance</div>
-                                <div className={`text-3xl font-bold ${Number(item.balance) < 500 ? 'text-red-500' : 'text-emerald-600'}`}>
-                                    €{Number(item.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <CardContent className="p-0">
+                            <TransactionHistoryModal id={item.id} name={item.name} type={type}>
+                                <div className="p-6 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                    <div className="mt-0">
+                                        <div className="text-sm font-medium text-slate-500 dark:text-slate-400">Current Balance</div>
+                                        {type === 'agent' ? (
+                                            <div className="text-3xl font-bold text-red-500">
+                                                -€{Number(item.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+                                        ) : (
+                                            <div className={`text-3xl font-bold ${Number(item.balance) < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                                                €{Number(item.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-slate-500">Issued Today</span>
+                                            <span className="font-medium">{item.daily_ticket_count || 0}</span>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">Issued Today</span>
-                                    <span className="font-medium">{item.daily_ticket_count || 0}</span>
-                                </div>
-                            </div>
+                            </TransactionHistoryModal>
                         </CardContent>
                     </Card>
                 ))}

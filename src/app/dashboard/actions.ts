@@ -20,6 +20,7 @@ export async function getDashboardStats(dateStr?: string) {
         .select('selling_price, profit, id')
         .gte('created_at', startOfMonth.toISOString())
         .lt('created_at', endOfMonth.toISOString())
+        .neq('currency', 'LKR')
 
     if (error) {
         console.error('Error fetching stats:', error)
@@ -51,6 +52,7 @@ export async function getRecentSales() {
     const { data: recent, error } = await supabase
         .from('bookings')
         .select('*')
+        .neq('currency', 'LKR')
         .order('created_at', { ascending: false })
         .limit(5)
 
@@ -85,6 +87,7 @@ export async function getAgentCreditStats() {
             .eq('booking_type_id', type.id)
             .eq('ticket_status', 'ISSUED')
             .eq('entry_date', today)
+            .neq('currency', 'LKR')
 
         return {
             ...type,
@@ -93,4 +96,31 @@ export async function getAgentCreditStats() {
     }))
 
     return stats
+}
+
+export async function getFinancialSummary() {
+    const supabase = await createClient()
+
+    // 1. Get Partner Balance (Sum of booking_types.balance)
+    const { data: partners, error: partnerError } = await supabase
+        .from('booking_types')
+        .select('balance')
+
+    // 2. Get Agent Debt (Sum of agents.balance)
+    const { data: agents, error: agentError } = await supabase
+        .from('agents')
+        .select('balance')
+
+    if (partnerError || agentError) {
+        console.error("Error fetching financial summary", partnerError, agentError)
+        return { totalPartnerBalance: 0, totalAgentDebt: 0 }
+    }
+
+    const totalPartnerBalance = partners.reduce((sum, p) => sum + (Number(p.balance) || 0), 0)
+    const totalAgentDebt = agents.reduce((sum, a) => sum + (Number(a.balance) || 0), 0)
+
+    return {
+        totalPartnerBalance,
+        totalAgentDebt
+    }
 }

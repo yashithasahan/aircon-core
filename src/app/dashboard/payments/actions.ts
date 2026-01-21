@@ -19,7 +19,9 @@ export async function topUpCredit(id: string, entityType: 'booking_type' | 'agen
         throw new Error(`${entityType === 'booking_type' ? 'Issuing Partner' : 'Agent'} not found`);
     }
 
-    const newBalance = Number(entity.balance) + Number(amount);
+    const newBalance = entityType === 'agent'
+        ? Number(entity.balance) - Number(amount) // Agent: Reduce debt
+        : Number(entity.balance) + Number(amount); // Partner: Increase balance
 
     // 2. Update Balance
     const { error: updateError } = await supabase
@@ -62,4 +64,121 @@ export async function getAgentsWithBalance() {
 
     if (error) return []
     return data
+}
+
+export async function getTransactions(id: string, entityType: 'booking_type' | 'agent') {
+    const supabase = await createClient()
+
+    let query = supabase
+        .from('credit_transactions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+    if (entityType === 'booking_type') {
+        query = query.eq('booking_type_id', id)
+    } else {
+        query = query.eq('agent_id', id)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+        console.error("Error fetching transactions:", error)
+        return []
+    }
+    return data
+}
+
+export async function updateTransactionAmount(transactionId: string, newAmount: number) {
+    const supabase = await createClient()
+
+    // 1. Get original transaction
+    const { data: transaction, error: fetchError } = await supabase
+        .from('credit_transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .single()
+
+    if (fetchError || !transaction) {
+        throw new Error("Transaction not found")
+    }
+
+    if (transaction.transaction_type !== 'TOPUP') {
+        throw new Error("Only Top-up/Payment transactions can be edited")
+    }
+
+    const oldAmount = Number(transaction.amount)
+    const diff = newAmount - oldAmount
+
+    if (diff === 0) return; // No change
+
+    // 2. Identify Entity
+    let entityType: 'booking_type' | 'agent'
+    let entityId: string
+
+    if (transaction.booking_type_id) {
+        entityType = 'booking_type'
+        entityId = transaction.booking_type_id
+    } else if (transaction.agent_id) {
+        entityType = 'agent'
+        entityId = transaction.agent_id
+    } else {
+        throw new Error("Transaction has no associated entity")
+    }
+
+    const table = entityType === 'booking_type' ? 'booking_types' : 'agents'
+
+    // 3. Fetch Entity Balance
+    const { data: entity, error: entityError } = await supabase
+        .from(table)
+        .select('balance')
+        .eq('id', entityId)
+        .single()
+
+    if (entityError || !entity) {
+        throw new Error("Entity not found")
+    }
+
+    // 4. Calculate New Entity Balance
+    // Partner: TopUp increases Balance. If TopUp increased (diff > 0), Balance increases.
+    // Agent: Payment reduces Debt (Balance). If Payment increased (diff > 0), Debt decreases (Balance decreases).
+    const currentBalance = Number(entity.balance)
+    let newEntityBalance = 0
+
+    if (entityType === 'agent') {
+        // Agent Balance = Debt.
+        // Payment reduces debt.
+        // If payment increases by 50 (diff=50), Debt reduces by 50.
+        newEntityBalance = currentBalance - diff
+    } else {
+        // Partner Balance = Assets.
+        // TopUp increases balance.
+        // If TopUp increases by 50, Balance increases by 50.
+        newEntityBalance = currentBalance + diff
+    }
+
+    // 5. Update Transaction
+    const { error: updateTxError } = await supabase
+        .from('credit_transactions')
+        .update({ amount: newAmount })
+        .eq('id', transactionId)
+
+    if (updateTxError) throw new Error("Failed to update transaction")
+
+    // 6. Update Entity Balance
+    const { error: updateEntityError } = await supabase
+        .from(table)
+        .update({ balance: newEntityBalance })
+        .eq('id', entityId)
+
+    if (updateEntityError) {
+        // Rollback transaction update? Ideally use SQL transaction/RPC.
+        // For now, simpler error logic implies manual fix if it fails halfway.
+        console.error("CRITICAL: Failed to update entity balance after transaction update.", updateEntityError)
+        throw new Error("Failed to update balance")
+    }
+
+    revalidatePath('/dashboard/payments')
+    revalidatePath('/dashboard')
 }
