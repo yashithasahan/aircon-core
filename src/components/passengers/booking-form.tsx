@@ -239,7 +239,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                 setValue("surname", pax.surname || "")
                 setValue("first_name", pax.first_name || "")
                 setValue("contact_info", pax.contact_info || "")
-                // setValue("phone_number", pax.phone_number || "")
+                setValue("phone_number", pax.phone_number || "")
             }
         }
     }, [selectedPaxId, passengers, setValue])
@@ -341,7 +341,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                     setValue("surname", "")
                     setValue("first_name", "")
                     setValue("contact_info", "")
-                    // setValue("phone_number", "")
+                    setValue("phone_number", "")
                     setValue("ticket_number", "") // Typically unique per ticket
 
                     toast.success("Booking saved! Add the next passenger.")
@@ -821,6 +821,36 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                                         <SelectItem value="INFANT">INFANT</SelectItem>
                                     </SelectContent>
                                 </Select>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                </div>
+
+                {/* Contact Details - Row 3 (New) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="contact_info"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Email</FormLabel>
+                                <FormControl>
+                                    <Input type="email" placeholder="passenger@example.com" {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField<BookingFormValues>
+                        control={control}
+                        name="phone_number"
+                        render={({ field }: { field: any }) => (
+                            <FormItem>
+                                <FormLabel>Phone Number</FormLabel>
+                                <FormControl>
+                                    <Input type="tel" placeholder="+94 77..." {...field} onChange={e => { field.onChange(e); if (selectedPaxId) form.setValue("passenger_id", "") }} />
+                                </FormControl>
                                 <FormMessage />
                             </FormItem>
                         )}

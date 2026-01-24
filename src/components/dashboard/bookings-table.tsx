@@ -69,8 +69,10 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                         <TableHead>PNR</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead>Pax Name</TableHead>
+                        <TableHead>Contact</TableHead>
                         <TableHead>Ticket No</TableHead>
                         <TableHead>Issued</TableHead>
+                        <TableHead>Issued From</TableHead>
                         <TableHead>Platform</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Airline</TableHead>
@@ -102,8 +104,14 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                                 </TableCell>
                                 <TableCell className="font-medium">{booking.entry_date}</TableCell>
                                 <TableCell>{booking.pax_name}</TableCell>
+                                <TableCell className="text-xs text-slate-500">
+                                    {passengers.find(p => p.id === booking.passenger_id)?.phone_number || '-'}
+                                </TableCell>
                                 <TableCell className="font-mono text-xs">{booking.ticket_number || '-'}</TableCell>
                                 <TableCell className="text-xs">{booking.ticket_issued_date || '-'}</TableCell>
+                                <TableCell className="text-xs">
+                                    {booking.booking_type?.name || '-'}
+                                </TableCell>
                                 <TableCell className="text-xs">{booking.platform || '-'}</TableCell>
                                 <TableCell>
                                     <Badge
