@@ -438,6 +438,22 @@ export async function createBookingType(name: string) {
     return { data }
 }
 
+// --- Platforms ---
+
+export async function getPlatforms() {
+    const supabase = await createClient()
+    const { data, error } = await supabase.from('platforms').select('*').order('name')
+    if (error) return []
+    return data
+}
+
+export async function createPlatform(name: string) {
+    const supabase = await createClient()
+    const { data, error } = await supabase.from('platforms').insert([{ name }]).select().single()
+    if (error) return { error: error.message }
+    return { data }
+}
+
 export async function cloneBookingWithNewStatus(originalBookingId: string, newStatus: string) {
     const supabase = await createClient()
 

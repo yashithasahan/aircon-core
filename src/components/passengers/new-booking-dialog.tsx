@@ -12,15 +12,16 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog"
 import { BookingForm } from "@/components/passengers/booking-form"
-import { Passenger, Agent, BookingType } from "@/types"
+import { Passenger, Agent, BookingType, Platform } from "@/types"
 
 interface NewBookingDialogProps {
     passengers: Passenger[]
     agents: Agent[]
     bookingTypes: BookingType[]
+    platforms?: Platform[]
 }
 
-export function NewBookingDialog({ passengers, agents, bookingTypes }: NewBookingDialogProps) {
+export function NewBookingDialog({ passengers, agents, bookingTypes, platforms = [] }: NewBookingDialogProps) {
     const [open, setOpen] = useState(false)
 
     return (
@@ -42,6 +43,7 @@ export function NewBookingDialog({ passengers, agents, bookingTypes }: NewBookin
                     passengers={passengers}
                     agents={agents}
                     bookingTypes={bookingTypes}
+                    platforms={platforms}
                     onSuccess={() => setOpen(false)}
                     onCancel={() => setOpen(false)}
                 />

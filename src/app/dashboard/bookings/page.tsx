@@ -12,7 +12,7 @@ import { NewBookingDialog } from "@/components/passengers/new-booking-dialog";
 import {
 
 } from "@/components/ui/dialog";
-import { getBookings, deleteBooking, getAgents, getBookingTypes } from "./actions";
+import { getBookings, deleteBooking, getAgents, getBookingTypes, getPlatforms } from "./actions";
 import { BookingsTable } from "@/components/dashboard/bookings-table";
 
 import { Booking } from "@/types";
@@ -32,6 +32,7 @@ export default async function BookingsPage({
     const passengers = await getPassengers();
     const agents = await getAgents();
     const bookingTypes = await getBookingTypes();
+    const platforms = await getPlatforms();
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -41,11 +42,11 @@ export default async function BookingsPage({
                 </h1>
                 <div className="flex items-center gap-2">
                     {/* Add Booking Dialog */}
-                    {/* Add Booking Dialog */}
                     <NewBookingDialog
                         passengers={passengers}
                         agents={agents}
                         bookingTypes={bookingTypes}
+                        platforms={platforms}
                     />
                 </div>
             </div>
@@ -69,6 +70,7 @@ export default async function BookingsPage({
                         passengers={passengers}
                         agents={agents}
                         bookingTypes={bookingTypes}
+                        platforms={platforms}
                     />
                 </CardContent>
             </Card>

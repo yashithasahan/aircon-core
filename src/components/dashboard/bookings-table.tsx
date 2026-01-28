@@ -20,7 +20,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { Booking, Passenger, Agent, BookingType } from "@/types"
+import { Booking, Passenger, Agent, BookingType, Platform } from "@/types"
 import { BookingDetailsModal } from "./booking-details-modal"
 import { deleteBooking } from "@/app/dashboard/bookings/actions"
 import { BookingForm } from "@/components/passengers/booking-form"
@@ -30,9 +30,10 @@ interface BookingsTableProps {
     passengers?: Passenger[] // Optional because we might not have updated parent fully yet or logic
     agents?: Agent[]
     bookingTypes?: BookingType[]
+    platforms?: Platform[]
 }
 
-export function BookingsTable({ bookings, passengers = [], agents = [], bookingTypes = [] }: BookingsTableProps) {
+export function BookingsTable({ bookings, passengers = [], agents = [], bookingTypes = [], platforms = [] }: BookingsTableProps) {
     const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
@@ -65,7 +66,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
         <>
             <Table>
                 <TableHeader>
-                    <TableRow className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 border-slate-100 dark:border-slate-800">
+                    <TableRow className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 border-slate-100 dark:border-slate-800 whitespace-nowrap">
                         <TableHead>PNR</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead>Pax Name</TableHead>
@@ -76,7 +77,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                         <TableHead>Platform</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Airline</TableHead>
-                        <TableHead className="text-right">Fare</TableHead>
+                        <TableHead className="text-right">Cost</TableHead>
                         <TableHead className="text-right">Selling</TableHead>
                         <TableHead className="text-right">Advance</TableHead>
                         <TableHead className="text-right">Profit</TableHead>
@@ -94,7 +95,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                         bookings.map((booking) => (
                             <TableRow
                                 key={booking.id}
-                                className="cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-900/10 hover:shadow-sm hover:border-blue-200 dark:hover:border-blue-800 transition-all duration-200 border-slate-100 dark:border-slate-800"
+                                className="cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-900/10 hover:shadow-sm hover:border-blue-200 dark:hover:border-blue-800 transition-all duration-200 border-slate-100 dark:border-slate-800 whitespace-nowrap"
                                 onClick={() => handleRowClick(booking)}
                             >
                                 <TableCell>
@@ -103,7 +104,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                                     </Badge>
                                 </TableCell>
                                 <TableCell className="font-medium">{booking.entry_date}</TableCell>
-                                <TableCell>{booking.pax_name}</TableCell>
+                                <TableCell className="whitespace-normal min-w-[200px] font-medium">{booking.pax_name}</TableCell>
                                 <TableCell className="text-xs text-slate-500">
                                     {passengers.find(p => p.id === booking.passenger_id)?.phone_number || '-'}
                                 </TableCell>
@@ -177,6 +178,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                             passengers={passengers}
                             agents={agents}
                             bookingTypes={bookingTypes}
+                            platforms={platforms}
                             initialData={editBooking}
                             bookingId={editBooking.id}
                             onSuccess={handleEditSuccess}

@@ -4,6 +4,14 @@ export interface Agent {
     name: string;
 }
 
+export interface Platform {
+    id: string;
+    created_at: string;
+    name: string;
+}
+
+
+
 export interface BookingType {
     id: string;
     created_at: string;

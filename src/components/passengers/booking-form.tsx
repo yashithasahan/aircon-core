@@ -48,9 +48,9 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
-import { createBooking, createAgent, createBookingType, updateBooking } from "@/app/dashboard/bookings/actions"
+import { createBooking, createAgent, createBookingType, updateBooking, createPlatform } from "@/app/dashboard/bookings/actions"
 import { createPassenger } from "@/app/dashboard/passengers/actions"
-import { Passenger, Agent, BookingType } from "@/types"
+import { Passenger, Agent, BookingType, Platform } from "@/types"
 
 // --- Zod Schema ---
 const bookingFormSchema = z.object({
@@ -69,7 +69,7 @@ const bookingFormSchema = z.object({
     airline: z.string().min(1, "Airline is required"),
     ticket_status: z.enum(["PENDING", "ISSUED", "VOID", "REFUNDED", "CANCELED"]),
     ticket_issued_date: z.string().optional(),
-    platform: z.string().optional(),
+    platform: z.string().min(1, "Platform is required"),
     ticket_number: z.string().optional(),
 
     origin: z.string().optional(),
@@ -120,13 +120,14 @@ interface BookingFormProps {
     passengers: Passenger[]
     agents?: Agent[]
     bookingTypes?: BookingType[]
+    platforms?: Platform[]
     initialData?: any // Can be Booking type but might need reshaping
     bookingId?: string
     onSuccess?: () => void
     onCancel?: () => void
 }
 
-export function BookingForm({ passengers, agents = [], bookingTypes = [], initialData, bookingId, onSuccess, onCancel }: BookingFormProps) {
+export function BookingForm({ passengers, agents = [], bookingTypes = [], platforms = [], initialData, bookingId, onSuccess, onCancel }: BookingFormProps) {
     const [loading, setLoading] = useState(false)
     const [addMoreMode, setAddMoreMode] = useState(false)
 
@@ -136,12 +137,15 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
     const [openPaxCombobox, setOpenPaxCombobox] = useState(false)
     const [openAgentCombobox, setOpenAgentCombobox] = useState(false)
     const [openTypeCombobox, setOpenTypeCombobox] = useState(false)
+    const [openPlatformCombobox, setOpenPlatformCombobox] = useState(false)
 
     // New Entity States
     const [newAgentOpen, setNewAgentOpen] = useState(false)
     const [newAgentName, setNewAgentName] = useState("")
     const [newTypeOpen, setNewTypeOpen] = useState(false)
     const [newTypeName, setNewTypeName] = useState("")
+    const [newPlatformOpen, setNewPlatformOpen] = useState(false)
+    const [newPlatformName, setNewPlatformName] = useState("")
 
     // Use ref for immediate state access in onSubmit during form submission
     const addMoreModeRef = useRef(false)
@@ -269,6 +273,24 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
             toast.success("Booking type created")
         }
     }
+
+    async function handleCreatePlatform() {
+        if (!newPlatformName) return;
+        const res = await createPlatform(newPlatformName);
+        if (res?.data) {
+            setNewPlatformOpen(false);
+            setNewPlatformName("");
+            router.refresh();
+            // Also select it immediately? 
+            // We can't easily auto-select because the parents pass props. 
+            // But router.refresh() will re-render this component with new platforms in prop.
+            // Ideally we wait for that or optimistically add it. 
+            // For now, let user select it.
+            toast.success("Platform created")
+        }
+    }
+
+
 
     async function onSubmit(data: BookingFormValues) {
         setLoading(true)
@@ -610,11 +632,78 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], initia
                         control={control}
                         name="platform"
                         render={({ field }: { field: any }) => (
-                            <FormItem>
-                                <FormLabel>Platform</FormLabel>
-                                <FormControl>
-                                    <Input placeholder="GDS, Web..." {...field} />
-                                </FormControl>
+                            <FormItem className="flex flex-col">
+                                <FormLabel>Platform <span className="text-red-500">*</span></FormLabel>
+                                <div className="flex gap-2">
+                                    <Popover open={openPlatformCombobox} onOpenChange={setOpenPlatformCombobox}>
+                                        <PopoverTrigger asChild>
+                                            <FormControl>
+                                                <Button
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    className={cn(
+                                                        "w-full justify-between",
+                                                        !field.value && "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {field.value
+                                                        ? (() => {
+                                                            // We store the platform NAME in the DB (text column),
+                                                            // but here we are selecting from a list of objects {id, name}.
+                                                            // The form schema expects `platform` string (the name).
+                                                            // So we match by name.
+                                                            return platforms.find((p) => p.name === field.value)?.name || field.value
+                                                        })()
+                                                        : "Select platform..."}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </FormControl>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[200px] p-0">
+                                            <Command>
+                                                <CommandInput placeholder="Search platform..." />
+                                                <CommandList>
+                                                    <CommandEmpty>No platform found.</CommandEmpty>
+                                                    <CommandGroup>
+                                                        {platforms.map((p) => (
+                                                            <CommandItem
+                                                                value={p.name}
+                                                                key={p.id}
+                                                                onSelect={() => {
+                                                                    form.setValue("platform", p.name)
+                                                                    setOpenPlatformCombobox(false)
+                                                                }}
+                                                            >
+                                                                <Check
+                                                                    className={cn(
+                                                                        "mr-2 h-4 w-4",
+                                                                        p.name === field.value ? "opacity-100" : "opacity-0"
+                                                                    )}
+                                                                />
+                                                                {p.name}
+                                                            </CommandItem>
+                                                        ))}
+                                                    </CommandGroup>
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
+                                    <Dialog open={newPlatformOpen} onOpenChange={setNewPlatformOpen}>
+                                        <DialogTrigger asChild>
+                                            <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                            <DialogHeader><DialogTitle>Add New Platform</DialogTitle></DialogHeader>
+                                            <div className="space-y-4 py-4">
+                                                <div className="space-y-2">
+                                                    <FormLabel>Platform Name</FormLabel>
+                                                    <Input value={newPlatformName} onChange={(e) => setNewPlatformName(e.target.value)} />
+                                                </div>
+                                                <Button onClick={handleCreatePlatform} type="button" className="w-full">Create</Button>
+                                            </div>
+                                        </DialogContent>
+                                    </Dialog>
+                                </div>
                                 <FormMessage />
                             </FormItem>
                         )}
