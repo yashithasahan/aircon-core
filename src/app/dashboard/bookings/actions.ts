@@ -298,7 +298,22 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 }
 
 
-export async function getBookings(query?: string) {
+export type BookingFilters = {
+    query?: string;
+    status?: string;
+    platform?: string;
+    airline?: string;
+    startDate?: string;
+    endDate?: string;
+    agentId?: string;
+    bookingTypeId?: string;
+}
+
+export async function getBookings(filters: BookingFilters | string = {}) {
+    // Backward compatibility: if string, treat as query
+    const { query, status, platform, airline, startDate, endDate, agentId, bookingTypeId } =
+        typeof filters === 'string' ? { query: filters } as BookingFilters : filters;
+
     const supabase = await createClient()
 
     let dbQuery = supabase
@@ -315,6 +330,34 @@ export async function getBookings(query?: string) {
         if (sanitizedQuery) {
             dbQuery = dbQuery.or(`pnr.ilike.%${sanitizedQuery}%,ticket_number.ilike.%${sanitizedQuery}%,pax_name.ilike.%${sanitizedQuery}%,airline.ilike.%${sanitizedQuery}%,ticket_status.ilike.%${sanitizedQuery}%`)
         }
+    }
+
+    if (status && status !== 'ALL') {
+        dbQuery = dbQuery.eq('ticket_status', status)
+    }
+
+    if (platform && platform !== 'ALL') {
+        dbQuery = dbQuery.eq('platform', platform)
+    }
+
+    if (airline) {
+        dbQuery = dbQuery.ilike('airline', `%${airline}%`)
+    }
+
+    if (startDate) {
+        dbQuery = dbQuery.gte('entry_date', startDate)
+    }
+
+    if (endDate) {
+        dbQuery = dbQuery.lte('entry_date', endDate)
+    }
+
+    if (agentId && agentId !== 'ALL') {
+        dbQuery = dbQuery.eq('agent_id', agentId)
+    }
+
+    if (bookingTypeId && bookingTypeId !== 'ALL') {
+        dbQuery = dbQuery.eq('booking_type_id', bookingTypeId)
     }
 
     const { data, error } = await dbQuery.order('created_at', { ascending: false })
