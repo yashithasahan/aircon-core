@@ -307,11 +307,13 @@ export type BookingFilters = {
     endDate?: string;
     agentId?: string;
     bookingTypeId?: string;
+    page?: number;
+    limit?: number;
 }
 
 export async function getBookings(filters: BookingFilters | string = {}) {
     // Backward compatibility: if string, treat as query
-    const { query, status, platform, airline, startDate, endDate, agentId, bookingTypeId } =
+    const { query, status, platform, airline, startDate, endDate, agentId, bookingTypeId, page, limit } =
         typeof filters === 'string' ? { query: filters } as BookingFilters : filters;
 
     const supabase = await createClient()
@@ -322,7 +324,7 @@ export async function getBookings(filters: BookingFilters | string = {}) {
             *,
             agent:agents(name),
             booking_type:booking_types(name)
-        `)
+        `, { count: 'exact' })
 
     if (query) {
         // Sanitize query to prevent breaking PostgREST 'or' syntax (commas are separators)
@@ -360,16 +362,23 @@ export async function getBookings(filters: BookingFilters | string = {}) {
         dbQuery = dbQuery.eq('booking_type_id', bookingTypeId)
     }
 
-    const { data, error } = await dbQuery.order('created_at', { ascending: false })
+    // Pagination
+    if (page && limit) {
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+        dbQuery = dbQuery.range(from, to);
+    }
+
+    const { data, error, count } = await dbQuery.order('created_at', { ascending: false })
 
     if (error) {
         console.error('Fetch error in getBookings:', error)
-        return []
+        return { data: [], count: 0 }
     }
 
-    console.log("Search results count:", data?.length);
+    console.log("Search results count:", count);
 
-    return data
+    return { data: data as any[], count: count || 0 }
 }
 
 export async function deleteBooking(id: string) {

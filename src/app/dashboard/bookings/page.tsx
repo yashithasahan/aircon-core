@@ -47,7 +47,7 @@ export default async function BookingsPage({
         bookingTypeId: (await searchParams)?.bookingTypeId,
     }
 
-    const bookings = await getBookings(filters) as Booking[];
+    const { data: bookings } = await getBookings(filters);
     const passengers = await getPassengers();
     const agents = await getAgents();
     const bookingTypes = await getBookingTypes();

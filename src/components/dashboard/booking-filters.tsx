@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams, usePathname } from "next/navigation"
 import { CalendarIcon, Filter, X, ChevronDown, ChevronUp } from "lucide-react"
 import { format } from "date-fns"
 import { DateRange } from "react-day-picker"
@@ -36,6 +36,7 @@ interface BookingFiltersProps {
 
 export function BookingFilters({ platforms, agents, bookingTypes, children }: BookingFiltersProps) {
     const router = useRouter()
+    const pathname = usePathname()
     const searchParams = useSearchParams()
 
     const [isOpen, setIsOpen] = React.useState(false)
@@ -99,7 +100,7 @@ export function BookingFilters({ platforms, agents, bookingTypes, children }: Bo
         if (date?.to) params.set("to", format(date.to, "yyyy-MM-dd"))
         else params.delete("to")
 
-        router.push(`/dashboard/bookings?${params.toString()}`)
+        router.push(`${pathname}?${params.toString()}`)
         // User might want to keep panel open to tweak, or close it. 
         // For "Apply", closing is standard behavior.
         setIsOpen(false)
@@ -124,7 +125,7 @@ export function BookingFilters({ platforms, agents, bookingTypes, children }: Bo
         params.delete("from")
         params.delete("to")
 
-        router.push(`/dashboard/bookings?${params.toString()}`)
+        router.push(`${pathname}?${params.toString()}`)
     }
 
     return (
