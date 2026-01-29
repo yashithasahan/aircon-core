@@ -298,7 +298,24 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 }
 
 
-export async function getBookings(query?: string) {
+export type BookingFilters = {
+    query?: string;
+    status?: string;
+    platform?: string;
+    airline?: string;
+    startDate?: string;
+    endDate?: string;
+    agentId?: string;
+    bookingTypeId?: string;
+    page?: number;
+    limit?: number;
+}
+
+export async function getBookings(filters: BookingFilters | string = {}) {
+    // Backward compatibility: if string, treat as query
+    const { query, status, platform, airline, startDate, endDate, agentId, bookingTypeId, page, limit } =
+        typeof filters === 'string' ? { query: filters } as BookingFilters : filters;
+
     const supabase = await createClient()
 
     let dbQuery = supabase
@@ -307,7 +324,7 @@ export async function getBookings(query?: string) {
             *,
             agent:agents(name),
             booking_type:booking_types(name)
-        `)
+        `, { count: 'exact' })
 
     if (query) {
         // Sanitize query to prevent breaking PostgREST 'or' syntax (commas are separators)
@@ -317,16 +334,51 @@ export async function getBookings(query?: string) {
         }
     }
 
-    const { data, error } = await dbQuery.order('created_at', { ascending: false })
+    if (status && status !== 'ALL') {
+        dbQuery = dbQuery.eq('ticket_status', status)
+    }
+
+    if (platform && platform !== 'ALL') {
+        dbQuery = dbQuery.eq('platform', platform)
+    }
+
+    if (airline) {
+        dbQuery = dbQuery.ilike('airline', `%${airline}%`)
+    }
+
+    if (startDate) {
+        dbQuery = dbQuery.gte('entry_date', startDate)
+    }
+
+    if (endDate) {
+        dbQuery = dbQuery.lte('entry_date', endDate)
+    }
+
+    if (agentId && agentId !== 'ALL') {
+        dbQuery = dbQuery.eq('agent_id', agentId)
+    }
+
+    if (bookingTypeId && bookingTypeId !== 'ALL') {
+        dbQuery = dbQuery.eq('booking_type_id', bookingTypeId)
+    }
+
+    // Pagination
+    if (page && limit) {
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+        dbQuery = dbQuery.range(from, to);
+    }
+
+    const { data, error, count } = await dbQuery.order('created_at', { ascending: false })
 
     if (error) {
         console.error('Fetch error in getBookings:', error)
-        return []
+        return { data: [], count: 0 }
     }
 
-    console.log("Search results count:", data?.length);
+    console.log("Search results count:", count);
 
-    return data
+    return { data: data as any[], count: count || 0 }
 }
 
 export async function deleteBooking(id: string) {

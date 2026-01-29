@@ -14,7 +14,8 @@ import {
     ChevronLeft,
     ChevronRight,
     PanelLeftClose,
-    PanelLeftOpen
+    PanelLeftOpen,
+    BarChart
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ModeToggle } from "@/components/ui/mode-toggle";
@@ -51,6 +52,11 @@ const sidebarItems = [
         title: "Passengers",
         href: "/dashboard/passengers",
         icon: Users,
+    },
+    {
+        title: "Reports",
+        href: "/dashboard/reports",
+        icon: BarChart,
     },
     {
         title: "Payments",

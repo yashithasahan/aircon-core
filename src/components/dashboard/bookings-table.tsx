@@ -31,9 +31,10 @@ interface BookingsTableProps {
     agents?: Agent[]
     bookingTypes?: BookingType[]
     platforms?: Platform[]
+    readOnly?: boolean
 }
 
-export function BookingsTable({ bookings, passengers = [], agents = [], bookingTypes = [], platforms = [] }: BookingsTableProps) {
+export function BookingsTable({ bookings, passengers = [], agents = [], bookingTypes = [], platforms = [], readOnly = false }: BookingsTableProps) {
     const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
@@ -81,14 +82,14 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                         <TableHead className="text-right">Selling</TableHead>
                         <TableHead className="text-right">Advance</TableHead>
                         <TableHead className="text-right">Profit</TableHead>
-                        <TableHead className="w-[100px] text-right">Actions</TableHead>
+                        {!readOnly && <TableHead className="w-[100px] text-right">Actions</TableHead>}
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {bookings.length === 0 ? (
                         <TableRow>
-                            <TableCell colSpan={13} className="text-center py-10 text-slate-500">
-                                No bookings found. Create one to get started.
+                            <TableCell colSpan={readOnly ? 14 : 15} className="text-center py-10 text-slate-500">
+                                No bookings found.
                             </TableCell>
                         </TableRow>
                     ) : (
@@ -138,19 +139,21 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                                 <TableCell className="text-right font-medium text-green-600 dark:text-green-400">
                                     {booking.profit.toFixed(2)}
                                 </TableCell>
-                                <TableCell onClick={(e) => e.stopPropagation()} className="text-right">
-                                    <div className="flex items-center justify-end gap-2">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8 text-slate-500 hover:text-blue-600"
-                                            onClick={(e) => handleEditClick(e, booking)}
-                                        >
-                                            <Pencil className="h-4 w-4" />
-                                        </Button>
-                                        <DeleteButton id={booking.id} onDelete={deleteBooking} itemName="Booking" />
-                                    </div>
-                                </TableCell>
+                                {!readOnly && (
+                                    <TableCell onClick={(e) => e.stopPropagation()} className="text-right">
+                                        <div className="flex items-center justify-end gap-2">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-slate-500 hover:text-blue-600"
+                                                onClick={(e) => handleEditClick(e, booking)}
+                                            >
+                                                <Pencil className="h-4 w-4" />
+                                            </Button>
+                                            <DeleteButton id={booking.id} onDelete={deleteBooking} itemName="Booking" />
+                                        </div>
+                                    </TableCell>
+                                )}
                             </TableRow>
                         ))
                     )}

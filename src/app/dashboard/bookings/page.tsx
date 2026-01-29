@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Search, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { NewBookingDialog } from "@/components/passengers/new-booking-dialog";
+import { BookingFilters } from "@/components/dashboard/booking-filters";
 import {
 
 } from "@/components/ui/dialog";
@@ -25,10 +26,28 @@ export default async function BookingsPage({
 }: {
     searchParams?: Promise<{
         query?: string;
+        status?: string;
+        platform?: string;
+        airline?: string;
+        from?: string;
+        to?: string;
+        agentId?: string;
+        bookingTypeId?: string;
     }>;
 }) {
     const query = (await searchParams)?.query || '';
-    const bookings = await getBookings(query) as Booking[];
+    const filters = {
+        query,
+        status: (await searchParams)?.status,
+        platform: (await searchParams)?.platform,
+        airline: (await searchParams)?.airline,
+        startDate: (await searchParams)?.from,
+        endDate: (await searchParams)?.to,
+        agentId: (await searchParams)?.agentId,
+        bookingTypeId: (await searchParams)?.bookingTypeId,
+    }
+
+    const { data: bookings } = await getBookings(filters);
     const passengers = await getPassengers();
     const agents = await getAgents();
     const bookingTypes = await getBookingTypes();
@@ -52,12 +71,9 @@ export default async function BookingsPage({
             </div>
 
             {/* Filter/Search Bar */}
-            <div className="flex items-center gap-2">
+            <BookingFilters platforms={platforms} agents={agents} bookingTypes={bookingTypes}>
                 <SearchInput placeholder="Search by name, PNR, or ticket..." />
-                <Button variant="outline" size="icon">
-                    <Filter className="h-4 w-4" />
-                </Button>
-            </div>
+            </BookingFilters>
 
             <Card className="border-slate-200 dark:border-slate-800 shadow-sm bg-white/50 dark:bg-slate-950/50 backdrop-blur-sm">
                 <CardHeader className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
