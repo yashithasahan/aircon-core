@@ -59,6 +59,11 @@ const sidebarItems = [
         icon: BarChart,
     },
     {
+        title: "Entities",
+        href: "/dashboard/entities",
+        icon: LayoutDashboard, // Reuse or find a better icon like 'Database' or 'List'
+    },
+    {
         title: "Payments",
         href: "/dashboard/payments",
         icon: CreditCard,

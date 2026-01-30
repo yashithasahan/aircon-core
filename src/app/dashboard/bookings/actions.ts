@@ -470,8 +470,34 @@ export async function getAgents() {
 export async function createAgent(name: string) {
     const supabase = await createClient()
     const { data, error } = await supabase.from('agents').insert([{ name }]).select().single()
+
     if (error) return { error: error.message }
+
+    revalidatePath('/dashboard/entities')
+    revalidatePath('/dashboard/bookings')
     return { data }
+}
+
+export async function updateAgent(id: string, name: string) {
+    const supabase = await createClient()
+    const { data, error } = await supabase.from('agents').update({ name }).eq('id', id).select().single()
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/dashboard/entities')
+    revalidatePath('/dashboard/bookings')
+    return { data }
+}
+
+export async function deleteAgent(id: string) {
+    const supabase = await createClient()
+    const { error } = await supabase.from('agents').delete().eq('id', id)
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/dashboard/entities')
+    revalidatePath('/dashboard/bookings')
+    return { success: true }
 }
 
 // --- Booking Types ---
@@ -486,8 +512,34 @@ export async function getBookingTypes() {
 export async function createBookingType(name: string) {
     const supabase = await createClient()
     const { data, error } = await supabase.from('booking_types').insert([{ name }]).select().single()
+
     if (error) return { error: error.message }
+
+    revalidatePath('/dashboard/entities')
+    revalidatePath('/dashboard/bookings')
     return { data }
+}
+
+export async function updateBookingType(id: string, name: string) {
+    const supabase = await createClient()
+    const { data, error } = await supabase.from('booking_types').update({ name }).eq('id', id).select().single()
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/dashboard/entities')
+    revalidatePath('/dashboard/bookings')
+    return { data }
+}
+
+export async function deleteBookingType(id: string) {
+    const supabase = await createClient()
+    const { error } = await supabase.from('booking_types').delete().eq('id', id)
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/dashboard/entities')
+    revalidatePath('/dashboard/bookings')
+    return { success: true }
 }
 
 // --- Platforms ---
@@ -502,8 +554,34 @@ export async function getPlatforms() {
 export async function createPlatform(name: string) {
     const supabase = await createClient()
     const { data, error } = await supabase.from('platforms').insert([{ name }]).select().single()
+
     if (error) return { error: error.message }
+
+    revalidatePath('/dashboard/entities')
+    revalidatePath('/dashboard/bookings')
     return { data }
+}
+
+export async function updatePlatform(id: string, name: string) {
+    const supabase = await createClient()
+    const { data, error } = await supabase.from('platforms').update({ name }).eq('id', id).select().single()
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/dashboard/entities')
+    revalidatePath('/dashboard/bookings')
+    return { data }
+}
+
+export async function deletePlatform(id: string) {
+    const supabase = await createClient()
+    const { error } = await supabase.from('platforms').delete().eq('id', id)
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/dashboard/entities')
+    revalidatePath('/dashboard/bookings')
+    return { success: true }
 }
 
 export async function cloneBookingWithNewStatus(originalBookingId: string, newStatus: string) {
