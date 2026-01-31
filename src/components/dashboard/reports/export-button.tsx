@@ -44,7 +44,7 @@ export function ExportButton({ filters }: ExportButtonProps) {
                 "Ticket Number": booking.ticket_number,
                 "Status": booking.ticket_status,
                 "Platform": booking.platform,
-                "Type": booking.booking_type?.name || '-',
+                "Issued Partner": booking.issued_partner?.name || '-',
                 "Agent": booking.agent?.name || '-',
                 "Fare": booking.fare,
                 "Selling Price": booking.selling_price,

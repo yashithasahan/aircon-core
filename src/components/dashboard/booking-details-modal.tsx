@@ -88,6 +88,12 @@ export function BookingDetailsModal({ booking, isOpen, onClose }: BookingDetails
                             <span className="font-semibold">Airline:</span> {booking.airline}
                         </div>
                         <div>
+                            <span className="font-semibold">Agent:</span> {booking.agent?.name || '-'}
+                        </div>
+                        <div>
+                            <span className="font-semibold">Issued Partner:</span> {booking.issued_partner?.name || '-'}
+                        </div>
+                        <div>
                             <span className="font-semibold">Ticket No:</span> {booking.ticket_number || '-'}
                         </div>
                         <div>

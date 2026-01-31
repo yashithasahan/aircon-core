@@ -12,7 +12,8 @@ export interface Platform {
 
 
 
-export interface BookingType {
+
+export interface IssuedPartner {
     id: string;
     created_at: string;
     name: string;
@@ -53,11 +54,14 @@ export interface Booking {
     origin?: string;
     destination?: string;
     agent_id?: string;
-    booking_type_id?: string;
+    issued_partner_id?: string;
 
     // Joined fields (optional, depending on query)
     agent?: Agent;
-    booking_type?: BookingType;
+    issued_partner?: IssuedPartner;
+
+    // New
+    booking_source?: 'WALK_IN' | 'FINDYOURFARES' | 'AGENT';
 }
 
 export interface Passenger {
@@ -76,7 +80,7 @@ export interface Passenger {
     passenger_type?: 'ADULT' | 'CHILD' | 'INFANT';
 }
 
-export type BookingFormData = Omit<Booking, "id" | "created_at" | "profit" | "agent" | "booking_type">;
+export type BookingFormData = Omit<Booking, "id" | "created_at" | "profit" | "agent" | "issued_partner">;
 
 export interface BookingHistory {
     id: string;
@@ -89,7 +93,8 @@ export interface BookingHistory {
 }
 export interface CreditTransaction {
     id: string;
-    booking_type_id: string;
+    issued_partner_id?: string;
+    agent_id?: string;
     amount: number;
     transaction_type: 'TOPUP' | 'BOOKING_DEDUCTION' | 'REFUND' | 'ADJUSTMENT';
     reference_id?: string;

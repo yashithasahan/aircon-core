@@ -13,7 +13,7 @@ import { BookingFilters } from "@/components/dashboard/booking-filters";
 import {
 
 } from "@/components/ui/dialog";
-import { getBookings, deleteBooking, getAgents, getBookingTypes, getPlatforms } from "./actions";
+import { getBookings, deleteBooking, getAgents, getIssuedPartners, getPlatforms } from "./actions";
 import { BookingsTable } from "@/components/dashboard/bookings-table";
 
 import { Booking } from "@/types";
@@ -32,7 +32,7 @@ export default async function BookingsPage({
         from?: string;
         to?: string;
         agentId?: string;
-        bookingTypeId?: string;
+        issuedPartnerId?: string;
     }>;
 }) {
     const query = (await searchParams)?.query || '';
@@ -44,13 +44,13 @@ export default async function BookingsPage({
         startDate: (await searchParams)?.from,
         endDate: (await searchParams)?.to,
         agentId: (await searchParams)?.agentId,
-        bookingTypeId: (await searchParams)?.bookingTypeId,
+        issuedPartnerId: (await searchParams)?.issuedPartnerId,
     }
 
     const { data: bookings } = await getBookings(filters);
     const passengers = await getPassengers();
     const agents = await getAgents();
-    const bookingTypes = await getBookingTypes();
+    const issuedPartners = await getIssuedPartners();
     const platforms = await getPlatforms();
 
     return (
@@ -64,14 +64,14 @@ export default async function BookingsPage({
                     <NewBookingDialog
                         passengers={passengers}
                         agents={agents}
-                        bookingTypes={bookingTypes}
+                        issuedPartners={issuedPartners}
                         platforms={platforms}
                     />
                 </div>
             </div>
 
             {/* Filter/Search Bar */}
-            <BookingFilters platforms={platforms} agents={agents} bookingTypes={bookingTypes}>
+            <BookingFilters platforms={platforms} agents={agents} issuedPartners={issuedPartners}>
                 <SearchInput placeholder="Search by name, PNR, or ticket..." />
             </BookingFilters>
 
@@ -85,7 +85,7 @@ export default async function BookingsPage({
                         bookings={bookings}
                         passengers={passengers}
                         agents={agents}
-                        bookingTypes={bookingTypes}
+                        issuedPartners={issuedPartners}
                         platforms={platforms}
                     />
                 </CardContent>

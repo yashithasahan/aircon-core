@@ -3,10 +3,10 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-export async function topUpCredit(id: string, entityType: 'booking_type' | 'agent', amount: number, description?: string) {
+export async function topUpCredit(id: string, entityType: 'issued_partner' | 'agent', amount: number, description?: string) {
     const supabase = await createClient()
 
-    const table = entityType === 'booking_type' ? 'booking_types' : 'agents';
+    const table = entityType === 'issued_partner' ? 'issued_partners' : 'agents';
 
     // 1. Fetch current balance
     const { data: entity, error: btError } = await supabase
@@ -16,7 +16,7 @@ export async function topUpCredit(id: string, entityType: 'booking_type' | 'agen
         .single()
 
     if (btError || !entity) {
-        throw new Error(`${entityType === 'booking_type' ? 'Issuing Partner' : 'Agent'} not found`);
+        throw new Error(`${entityType === 'issued_partner' ? 'Issuing Partner' : 'Agent'} not found`);
     }
 
     const newBalance = entityType === 'agent'
@@ -39,7 +39,7 @@ export async function topUpCredit(id: string, entityType: 'booking_type' | 'agen
         transaction_type: 'TOPUP',
         description: description || `Manual ${entityType === 'agent' ? 'Payment' : 'Top Up'}`,
         // Set the correct FK, leave the other null
-        booking_type_id: entityType === 'booking_type' ? id : null,
+        issued_partner_id: entityType === 'issued_partner' ? id : null,
         agent_id: entityType === 'agent' ? id : null
     };
 
@@ -66,7 +66,7 @@ export async function getAgentsWithBalance() {
     return data
 }
 
-export async function getTransactions(id: string, entityType: 'booking_type' | 'agent') {
+export async function getTransactions(id: string, entityType: 'issued_partner' | 'agent') {
     const supabase = await createClient()
 
     let query = supabase
@@ -75,8 +75,8 @@ export async function getTransactions(id: string, entityType: 'booking_type' | '
         .order('created_at', { ascending: false })
         .limit(20)
 
-    if (entityType === 'booking_type') {
-        query = query.eq('booking_type_id', id)
+    if (entityType === 'issued_partner') {
+        query = query.eq('issued_partner_id', id)
     } else {
         query = query.eq('agent_id', id)
     }
@@ -114,12 +114,12 @@ export async function updateTransactionAmount(transactionId: string, newAmount: 
     if (diff === 0) return; // No change
 
     // 2. Identify Entity
-    let entityType: 'booking_type' | 'agent'
+    let entityType: 'issued_partner' | 'agent'
     let entityId: string
 
-    if (transaction.booking_type_id) {
-        entityType = 'booking_type'
-        entityId = transaction.booking_type_id
+    if (transaction.issued_partner_id) {
+        entityType = 'issued_partner'
+        entityId = transaction.issued_partner_id
     } else if (transaction.agent_id) {
         entityType = 'agent'
         entityId = transaction.agent_id
@@ -127,7 +127,7 @@ export async function updateTransactionAmount(transactionId: string, newAmount: 
         throw new Error("Transaction has no associated entity")
     }
 
-    const table = entityType === 'booking_type' ? 'booking_types' : 'agents'
+    const table = entityType === 'issued_partner' ? 'issued_partners' : 'agents'
 
     // 3. Fetch Entity Balance
     const { data: entity, error: entityError } = await supabase

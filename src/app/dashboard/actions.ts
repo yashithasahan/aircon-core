@@ -69,7 +69,7 @@ export async function getAgentCreditStats() {
 
     // Get all types
     const { data: types, error } = await supabase
-        .from('booking_types')
+        .from('issued_partners')
         .select('id, name, balance')
         .order('name')
 
@@ -84,7 +84,7 @@ export async function getAgentCreditStats() {
         const { count, error: countError } = await supabase
             .from('bookings')
             .select('*', { count: 'exact', head: true }) // count only
-            .eq('booking_type_id', type.id)
+            .eq('issued_partner_id', type.id)
             .eq('ticket_status', 'ISSUED')
             .eq('entry_date', today)
             .neq('currency', 'LKR')
@@ -101,9 +101,9 @@ export async function getAgentCreditStats() {
 export async function getFinancialSummary() {
     const supabase = await createClient()
 
-    // 1. Get Partner Balance (Sum of booking_types.balance)
+    // 1. Get Partner Balance (Sum of issued_partners.balance)
     const { data: partners, error: partnerError } = await supabase
-        .from('booking_types')
+        .from('issued_partners')
         .select('balance')
 
     // 2. Get Agent Debt (Sum of agents.balance)

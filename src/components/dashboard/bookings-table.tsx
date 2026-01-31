@@ -20,7 +20,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { Booking, Passenger, Agent, BookingType, Platform } from "@/types"
+import { Booking, Passenger, Agent, IssuedPartner, Platform } from "@/types"
 import { BookingDetailsModal } from "./booking-details-modal"
 import { deleteBooking } from "@/app/dashboard/bookings/actions"
 import { BookingForm } from "@/components/passengers/booking-form"
@@ -29,12 +29,12 @@ interface BookingsTableProps {
     bookings: Booking[]
     passengers?: Passenger[] // Optional because we might not have updated parent fully yet or logic
     agents?: Agent[]
-    bookingTypes?: BookingType[]
+    issuedPartners?: IssuedPartner[]
     platforms?: Platform[]
     readOnly?: boolean
 }
 
-export function BookingsTable({ bookings, passengers = [], agents = [], bookingTypes = [], platforms = [], readOnly = false }: BookingsTableProps) {
+export function BookingsTable({ bookings, passengers = [], agents = [], issuedPartners = [], platforms = [], readOnly = false }: BookingsTableProps) {
     const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
@@ -74,7 +74,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                         <TableHead>Contact</TableHead>
                         <TableHead>Ticket No</TableHead>
                         <TableHead>Issued</TableHead>
-                        <TableHead>Issued From</TableHead>
+                        <TableHead>Issued Partner</TableHead>
                         <TableHead>Platform</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Airline</TableHead>
@@ -112,7 +112,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                                 <TableCell className="font-mono text-xs">{booking.ticket_number || '-'}</TableCell>
                                 <TableCell className="text-xs">{booking.ticket_issued_date || '-'}</TableCell>
                                 <TableCell className="text-xs">
-                                    {booking.booking_type?.name || '-'}
+                                    {booking.issued_partner?.name || '-'}
                                 </TableCell>
                                 <TableCell className="text-xs">{booking.platform || '-'}</TableCell>
                                 <TableCell>
@@ -180,7 +180,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], bookingT
                         <BookingForm
                             passengers={passengers}
                             agents={agents}
-                            bookingTypes={bookingTypes}
+                            issuedPartners={issuedPartners}
                             platforms={platforms}
                             initialData={editBooking}
                             bookingId={editBooking.id}

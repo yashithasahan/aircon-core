@@ -9,6 +9,7 @@ export async function getPassengers() {
     const { data, error } = await supabase
         .from('passengers')
         .select('*')
+        .eq('is_deleted', false)
         .order('surname', { ascending: true })
 
     if (error) {
@@ -64,13 +65,10 @@ export async function deletePassenger(id: string) {
 
     const { error } = await supabase
         .from('passengers')
-        .delete()
+        .update({ is_deleted: true })
         .eq('id', id)
 
     if (error) {
-        if (error.code === '23503') { // Foreign key violation code (Postgres)
-            throw new Error("Cannot delete this passenger because they have existing bookings. Please delete the bookings first.")
-        }
         throw new Error(error.message)
     }
 
