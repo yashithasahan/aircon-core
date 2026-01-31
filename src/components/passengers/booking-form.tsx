@@ -473,7 +473,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>Booking Source <span className="text-red-500">*</span></FormLabel>
-                                <Select onValueChange={field.onChange} value={field.value} disabled={!!bookingId}>
+                                <Select onValueChange={field.onChange} value={field.value as string} disabled={!!bookingId}>
                                     <FormControl>
                                         <SelectTrigger>
                                             <SelectValue placeholder="Select source" />
