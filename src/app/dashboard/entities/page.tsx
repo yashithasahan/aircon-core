@@ -3,10 +3,10 @@ import {
     createAgent,
     updateAgent,
     deleteAgent,
-    getBookingTypes,
-    createBookingType,
-    updateBookingType,
-    deleteBookingType,
+    getIssuedPartners,
+    createIssuedPartner,
+    updateIssuedPartner,
+    deleteIssuedPartner,
     getPlatforms,
     createPlatform,
     updatePlatform,
@@ -16,9 +16,9 @@ import { EntityList } from "@/components/dashboard/entity-management/entity-list
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export default async function EntitesPage() {
-    const [agents, bookingTypes, platforms] = await Promise.all([
+    const [agents, issuedPartners, platforms] = await Promise.all([
         getAgents(),
-        getBookingTypes(),
+        getIssuedPartners(),
         getPlatforms()
     ])
 
@@ -30,7 +30,7 @@ export default async function EntitesPage() {
             <Tabs defaultValue="agents" className="space-y-4">
                 <TabsList>
                     <TabsTrigger value="agents">Agents</TabsTrigger>
-                    <TabsTrigger value="issued_from">Issued From</TabsTrigger>
+                    <TabsTrigger value="issued_partners">Issued Partners</TabsTrigger>
                     <TabsTrigger value="platforms">Platforms</TabsTrigger>
                 </TabsList>
                 <TabsContent value="agents" className="space-y-4">
@@ -42,13 +42,13 @@ export default async function EntitesPage() {
                         onDelete={deleteAgent}
                     />
                 </TabsContent>
-                <TabsContent value="issued_from" className="space-y-4">
+                <TabsContent value="issued_partners" className="space-y-4">
                     <EntityList
-                        title="Issued From Source"
-                        data={bookingTypes || []}
-                        onCreate={createBookingType}
-                        onUpdate={updateBookingType}
-                        onDelete={deleteBookingType}
+                        title="Issued Partner"
+                        data={issuedPartners || []}
+                        onCreate={createIssuedPartner}
+                        onUpdate={updateIssuedPartner}
+                        onDelete={deleteIssuedPartner}
                     />
                 </TabsContent>
                 <TabsContent value="platforms" className="space-y-4">

@@ -48,9 +48,9 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
-import { createBooking, createAgent, createBookingType, updateBooking, createPlatform } from "@/app/dashboard/bookings/actions"
+import { createBooking, createAgent, createIssuedPartner, updateBooking, createPlatform } from "@/app/dashboard/bookings/actions"
 import { createPassenger } from "@/app/dashboard/passengers/actions"
-import { Passenger, Agent, BookingType, Platform } from "@/types"
+import { Passenger, Agent, IssuedPartner, Platform } from "@/types"
 
 // --- Zod Schema ---
 const bookingFormSchema = z.object({
@@ -82,10 +82,10 @@ const bookingFormSchema = z.object({
     selling_price: z.coerce.number().min(0, "Selling price must be positive"),
     advance_payment: z.coerce.number().optional(),
 
-    // Relations - MANDATORY
-    // Relations - MANDATORY
-    agent_id: z.string().min(1, "Agent is required"),
-    booking_type_id: z.string().min(1, "Booking type is required"),
+    // Relations
+    booking_source: z.enum(["WALK_IN", "FINDYOURFARES", "AGENT"]).default("AGENT"),
+    agent_id: z.string().optional(), // validated in superRefine
+    issued_partner_id: z.string().min(1, "Issued Partner is required"),
 
     // Refund (conditional validation is tricky in pure Zod without superRefine, but we can make them optional and check logic)
     refund_date: z.string().optional(),
@@ -112,6 +112,15 @@ const bookingFormSchema = z.object({
             path: ["surname"] // highlight surname 
         });
     }
+
+    // Validate Agent requirement
+    if (data.booking_source === 'AGENT' && !data.agent_id) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Agent is required when source is 'Others'",
+            path: ["agent_id"]
+        });
+    }
 });
 
 type BookingFormValues = z.infer<typeof bookingFormSchema>
@@ -119,7 +128,7 @@ type BookingFormValues = z.infer<typeof bookingFormSchema>
 interface BookingFormProps {
     passengers: Passenger[]
     agents?: Agent[]
-    bookingTypes?: BookingType[]
+    issuedPartners?: IssuedPartner[]
     platforms?: Platform[]
     initialData?: any // Can be Booking type but might need reshaping
     bookingId?: string
@@ -127,7 +136,7 @@ interface BookingFormProps {
     onCancel?: () => void
 }
 
-export function BookingForm({ passengers, agents = [], bookingTypes = [], platforms = [], initialData, bookingId, onSuccess, onCancel }: BookingFormProps) {
+export function BookingForm({ passengers, agents = [], issuedPartners = [], platforms = [], initialData, bookingId, onSuccess, onCancel }: BookingFormProps) {
     const [loading, setLoading] = useState(false)
     const [addMoreMode, setAddMoreMode] = useState(false)
 
@@ -136,14 +145,14 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], platfo
     // UI States for Comboboxes
     const [openPaxCombobox, setOpenPaxCombobox] = useState(false)
     const [openAgentCombobox, setOpenAgentCombobox] = useState(false)
-    const [openTypeCombobox, setOpenTypeCombobox] = useState(false)
+    const [openPartnerCombobox, setOpenPartnerCombobox] = useState(false)
     const [openPlatformCombobox, setOpenPlatformCombobox] = useState(false)
 
     // New Entity States
     const [newAgentOpen, setNewAgentOpen] = useState(false)
     const [newAgentName, setNewAgentName] = useState("")
-    const [newTypeOpen, setNewTypeOpen] = useState(false)
-    const [newTypeName, setNewTypeName] = useState("")
+    const [newPartnerOpen, setNewPartnerOpen] = useState(false)
+    const [newPartnerName, setNewPartnerName] = useState("")
     const [newPlatformOpen, setNewPlatformOpen] = useState(false)
     const [newPlatformName, setNewPlatformName] = useState("")
 
@@ -205,8 +214,10 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], platfo
         departure_date: initialData?.departure_date ? initialData.departure_date.split('T')[0] : "",
         return_date: initialData?.return_date ? initialData.return_date.split('T')[0] : "",
         advance_payment: initialData?.advance_payment || 0,
+
+        booking_source: initialData?.booking_source || "AGENT",
         agent_id: initialData?.agent_id || initialData?.agent?.id || "", // agent might be object or id? Types says agent_id.
-        booking_type_id: initialData?.booking_type_id || initialData?.booking_type?.id || "",
+        issued_partner_id: initialData?.issued_partner_id || initialData?.issued_partner?.id || initialData?.booking_type_id || initialData?.booking_type?.id || "",
 
         ticket_issued_date: initialData?.ticket_issued_date ? initialData.ticket_issued_date.split('T')[0] : "",
         platform: initialData?.platform || "",
@@ -231,8 +242,10 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], platfo
     const advancePayment = watch("advance_payment") || 0
     const profit = sellingPrice - fare
 
-    const selectedBookingTypeId = watch("booking_type_id")
-    const selectedBookingType = bookingTypes.find(t => t.id === selectedBookingTypeId)
+    const bookingSource = watch("booking_source")
+
+    const selectedPartnerId = watch("issued_partner_id")
+    const selectedPartner = issuedPartners.find(t => t.id === selectedPartnerId)
 
     // Auto-fill passenger details
     useEffect(() => {
@@ -263,14 +276,14 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], platfo
         }
     }
 
-    async function handleCreateBookingType() {
-        if (!newTypeName) return;
-        const res = await createBookingType(newTypeName);
+    async function handleCreatePartner() {
+        if (!newPartnerName) return;
+        const res = await createIssuedPartner(newPartnerName);
         if (res?.data) {
-            setNewTypeOpen(false);
-            setNewTypeName("");
+            setNewPartnerOpen(false);
+            setNewPartnerName("");
             router.refresh(); // Refresh server components to show new type
-            toast.success("Booking type created")
+            toast.success("Issued Partner created")
         }
     }
 
@@ -453,90 +466,115 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], platfo
                 </div>
 
                 {/* Agent & Source - Row 2 */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <FormField<BookingFormValues>
                         control={control}
-                        name="agent_id"
-                        render={({ field }: { field: any }) => (
-                            <FormItem className="flex flex-col">
-                                <FormLabel>Agent <span className="text-red-500">*</span></FormLabel>
-                                <div className="flex gap-2">
-                                    <Popover open={openAgentCombobox} onOpenChange={setOpenAgentCombobox}>
-                                        <PopoverTrigger asChild>
-                                            <FormControl>
-                                                <Button
-                                                    variant="outline"
-                                                    role="combobox"
-                                                    className={cn(
-                                                        "w-full justify-between",
-                                                        !field.value && "text-muted-foreground"
-                                                    )}
-                                                >
-                                                    {field.value
-                                                        ? agents.find((a) => a.id === field.value)?.name
-                                                        : "Select agent..."}
-                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                                </Button>
-                                            </FormControl>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-[200px] p-0">
-                                            <Command>
-                                                <CommandInput placeholder="Search agent..." />
-                                                <CommandList>
-                                                    <CommandEmpty>No agent found.</CommandEmpty>
-                                                    <CommandGroup>
-                                                        {agents.map((a) => (
-                                                            <CommandItem
-                                                                value={a.name}
-                                                                key={a.id}
-                                                                onSelect={() => {
-                                                                    form.setValue("agent_id", a.id)
-                                                                    setOpenAgentCombobox(false)
-                                                                }}
-                                                            >
-                                                                <Check
-                                                                    className={cn(
-                                                                        "mr-2 h-4 w-4",
-                                                                        a.id === field.value ? "opacity-100" : "opacity-0"
-                                                                    )}
-                                                                />
-                                                                {a.name}
-                                                            </CommandItem>
-                                                        ))}
-                                                    </CommandGroup>
-                                                </CommandList>
-                                            </Command>
-                                        </PopoverContent>
-                                    </Popover>
-                                    <Dialog open={newAgentOpen} onOpenChange={setNewAgentOpen}>
-                                        <DialogTrigger asChild>
-                                            <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
-                                        </DialogTrigger>
-                                        <DialogContent>
-                                            <DialogHeader><DialogTitle>Add New Agent</DialogTitle></DialogHeader>
-                                            <div className="space-y-4 py-4">
-                                                <div className="space-y-2">
-                                                    <FormLabel>Agent Name</FormLabel>
-                                                    <Input value={newAgentName} onChange={(e) => setNewAgentName(e.target.value)} />
-                                                </div>
-                                                <Button onClick={handleCreateAgent} type="button" className="w-full">Create</Button>
-                                            </div>
-                                        </DialogContent>
-                                    </Dialog>
-                                </div>
+                        name="booking_source"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Booking Source <span className="text-red-500">*</span></FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value} disabled={!!bookingId}>
+                                    <FormControl>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select source" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="WALK_IN">Walk-in</SelectItem>
+                                        <SelectItem value="FINDYOURFARES">FindYourFares</SelectItem>
+                                        <SelectItem value="AGENT">Others (Agent)</SelectItem>
+                                    </SelectContent>
+                                </Select>
                                 <FormMessage />
                             </FormItem>
                         )}
                     />
 
+                    {bookingSource === 'AGENT' && (
+                        <FormField<BookingFormValues>
+                            control={control}
+                            name="agent_id"
+                            render={({ field }: { field: any }) => (
+                                <FormItem className="flex flex-col">
+                                    <FormLabel>Agent <span className="text-red-500">*</span></FormLabel>
+                                    <div className="flex gap-2">
+                                        <Popover open={openAgentCombobox} onOpenChange={setOpenAgentCombobox}>
+                                            <PopoverTrigger asChild>
+                                                <FormControl>
+                                                    <Button
+                                                        variant="outline"
+                                                        role="combobox"
+                                                        className={cn(
+                                                            "w-full justify-between",
+                                                            !field.value && "text-muted-foreground"
+                                                        )}
+                                                    >
+                                                        {field.value
+                                                            ? agents.find((a) => a.id === field.value)?.name
+                                                            : "Select agent..."}
+                                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                    </Button>
+                                                </FormControl>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[200px] p-0">
+                                                <Command>
+                                                    <CommandInput placeholder="Search agent..." />
+                                                    <CommandList>
+                                                        <CommandEmpty>No agent found.</CommandEmpty>
+                                                        <CommandGroup>
+                                                            {agents.map((a) => (
+                                                                <CommandItem
+                                                                    value={a.name}
+                                                                    key={a.id}
+                                                                    onSelect={() => {
+                                                                        form.setValue("agent_id", a.id)
+                                                                        setOpenAgentCombobox(false)
+                                                                    }}
+                                                                >
+                                                                    <Check
+                                                                        className={cn(
+                                                                            "mr-2 h-4 w-4",
+                                                                            a.id === field.value ? "opacity-100" : "opacity-0"
+                                                                        )}
+                                                                    />
+                                                                    {a.name}
+                                                                </CommandItem>
+                                                            ))}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
+                                        <Dialog open={newAgentOpen} onOpenChange={setNewAgentOpen}>
+                                            <DialogTrigger asChild>
+                                                <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
+                                            </DialogTrigger>
+                                            <DialogContent>
+                                                <DialogHeader><DialogTitle>Add New Agent</DialogTitle></DialogHeader>
+                                                <div className="space-y-4 py-4">
+                                                    <div className="space-y-2">
+                                                        <FormLabel>Agent Name</FormLabel>
+                                                        <Input value={newAgentName} onChange={(e) => setNewAgentName(e.target.value)} />
+                                                    </div>
+                                                    <Button onClick={handleCreateAgent} type="button" className="w-full">Create</Button>
+                                                </div>
+                                            </DialogContent>
+                                        </Dialog>
+                                    </div>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
+
                     <FormField<BookingFormValues>
                         control={control}
-                        name="booking_type_id"
+                        name="issued_partner_id"
                         render={({ field }: { field: any }) => (
                             <FormItem className="flex flex-col">
-                                <FormLabel>Issued From <span className="text-red-500">*</span></FormLabel>
+                                <FormLabel>Issued Partners <span className="text-red-500">*</span></FormLabel>
                                 <div className="flex gap-2">
-                                    <Popover open={openTypeCombobox} onOpenChange={setOpenTypeCombobox}>
+                                    <Popover open={openPartnerCombobox} onOpenChange={setOpenPartnerCombobox}>
                                         <PopoverTrigger asChild>
                                             <FormControl>
                                                 <Button
@@ -548,25 +586,25 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], platfo
                                                     )}
                                                 >
                                                     {field.value
-                                                        ? bookingTypes.find((t) => t.id === field.value)?.name
-                                                        : "Select source..."}
+                                                        ? issuedPartners.find((t) => t.id === field.value)?.name
+                                                        : "Select partner..."}
                                                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                                 </Button>
                                             </FormControl>
                                         </PopoverTrigger>
                                         <PopoverContent className="w-[200px] p-0">
                                             <Command>
-                                                <CommandInput placeholder="Search source..." />
+                                                <CommandInput placeholder="Search partner..." />
                                                 <CommandList>
-                                                    <CommandEmpty>No source found.</CommandEmpty>
+                                                    <CommandEmpty>No partner found.</CommandEmpty>
                                                     <CommandGroup>
-                                                        {bookingTypes.map((t) => (
+                                                        {issuedPartners.map((t) => (
                                                             <CommandItem
                                                                 value={t.name}
                                                                 key={t.id}
                                                                 onSelect={() => {
-                                                                    form.setValue("booking_type_id", t.id, { shouldValidate: true })
-                                                                    setOpenTypeCombobox(false)
+                                                                    form.setValue("issued_partner_id", t.id, { shouldValidate: true })
+                                                                    setOpenPartnerCombobox(false)
                                                                 }}
                                                             >
                                                                 <Check
@@ -583,18 +621,18 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], platfo
                                             </Command>
                                         </PopoverContent>
                                     </Popover>
-                                    <Dialog open={newTypeOpen} onOpenChange={setNewTypeOpen}>
+                                    <Dialog open={newPartnerOpen} onOpenChange={setNewPartnerOpen}>
                                         <DialogTrigger asChild>
                                             <Button variant="secondary" size="icon" type="button"><Plus className="h-4 w-4" /></Button>
                                         </DialogTrigger>
                                         <DialogContent>
-                                            <DialogHeader><DialogTitle>Add Issued From Source</DialogTitle></DialogHeader>
+                                            <DialogHeader><DialogTitle>Add Issued Partner</DialogTitle></DialogHeader>
                                             <div className="space-y-4 py-4">
                                                 <div className="space-y-2">
-                                                    <FormLabel>Source Name</FormLabel>
-                                                    <Input value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} />
+                                                    <FormLabel>Partner Name</FormLabel>
+                                                    <Input value={newPartnerName} onChange={(e) => setNewPartnerName(e.target.value)} />
                                                 </div>
-                                                <Button onClick={handleCreateBookingType} type="button" className="w-full">Create</Button>
+                                                <Button onClick={handleCreatePartner} type="button" className="w-full">Create</Button>
                                             </div>
                                         </DialogContent>
                                     </Dialog>
@@ -604,7 +642,7 @@ export function BookingForm({ passengers, agents = [], bookingTypes = [], platfo
                         )}
                     />
 
-                    {selectedBookingType?.name?.trim().toUpperCase() === 'IATA' ? (
+                    {selectedPartner?.name?.trim().toUpperCase() === 'IATA' ? (
                         <FormField<BookingFormValues>
                             control={control}
                             name="payment_method"

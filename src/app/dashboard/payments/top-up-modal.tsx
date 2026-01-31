@@ -20,7 +20,7 @@ import { topUpCredit } from "./actions"
 interface TopUpModalProps {
     id: string
     name: string
-    type: 'booking_type' | 'agent'
+    type: 'issued_partner' | 'agent'
     buttonLabel?: string
 }
 

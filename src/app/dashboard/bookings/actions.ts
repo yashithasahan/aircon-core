@@ -44,27 +44,27 @@ export async function createBooking(formData: BookingFormData) {
         const price = Number(formData.selling_price) || 0
 
         // A. Issuing Partner Logic (Prepaid - Deduct Buying Price)
-        if (formData.booking_type_id) {
-            const { data: bookingType, error: btError } = await supabase
-                .from('booking_types')
+        if (formData.issued_partner_id) {
+            const { data: issuedPartner, error: btError } = await supabase
+                .from('issued_partners')
                 .select('balance, name')
-                .eq('id', formData.booking_type_id)
+                .eq('id', formData.issued_partner_id)
                 .single()
 
-            if (btError || !bookingType) throw new Error('Invalid Issued From source.')
+            if (btError || !issuedPartner) throw new Error('Invalid Issued Partner.')
 
             // Removed "Insufficient Funds" check as requested - balance can go negative (Red)
 
-            const newBalance = Number(bookingType.balance) - cost
+            const newBalance = Number(issuedPartner.balance) - cost
             const { error: balError } = await supabase
-                .from('booking_types')
+                .from('issued_partners')
                 .update({ balance: newBalance })
-                .eq('id', formData.booking_type_id)
+                .eq('id', formData.issued_partner_id)
 
             if (balError) throw new Error('Failed to update credit balance.')
 
             await supabase.from('credit_transactions').insert([{
-                booking_type_id: formData.booking_type_id,
+                issued_partner_id: formData.issued_partner_id,
                 amount: -cost,
                 transaction_type: 'BOOKING_DEDUCTION',
                 description: `Booking issuance for PNR ${formData.pnr}`,
@@ -73,7 +73,8 @@ export async function createBooking(formData: BookingFormData) {
         }
 
         // B. Agent Logic (Credit/Debt - Add Selling Price to Balance)
-        if (formData.agent_id) {
+        // ONLY if booking_source is 'AGENT'
+        if (formData.booking_source === 'AGENT' && formData.agent_id) {
             const { data: agent, error: agError } = await supabase
                 .from('agents')
                 .select('balance, name')
@@ -119,8 +120,12 @@ export async function createBooking(formData: BookingFormData) {
                 // New Fields
                 origin: formData.origin,
                 destination: formData.destination,
-                agent_id: formData.agent_id || null, // FIX: handle empty string
-                booking_type_id: formData.booking_type_id || null, // FIX: handle empty string
+
+                // Agent Logic: Only set agent_id if source is AGENT
+                agent_id: (formData.booking_source === 'AGENT' && formData.agent_id) ? formData.agent_id : null,
+                booking_source: formData.booking_source || 'AGENT',
+
+                issued_partner_id: formData.issued_partner_id || null, // FIX: handle empty string
 
                 // Mapped Missing Fields
                 ticket_status: formData.ticket_status,
@@ -183,72 +188,144 @@ export async function updateBooking(id: string, formData: BookingFormData) {
         }
     }
 
-    // 3. Credit Check for Status Change
+    // 3. Financial Update Logic (Credit/Debt Reversal & Recharge)
     const { data: currentBooking } = await supabase
         .from('bookings')
-        .select('ticket_status, booking_type_id, agent_id, currency')
+        .select('*')
         .eq('id', id)
         .single()
 
     if (currentBooking) {
-        // Only trigger if status changing to ISSUED and currency is not LKR (or if currency changed to non-LKR, but let's assume currency doesn't change on invalid status)
-        const effectiveCurrency = formData.currency || currentBooking.currency || 'EUR';
+        // Detect Financial Changes
+        const isStatusChanged = currentBooking.ticket_status !== formData.ticket_status;
+        const isAmountChanged = Number(currentBooking.fare) !== Number(formData.fare) || Number(currentBooking.selling_price) !== Number(formData.selling_price);
+        // logic for agent/source change: 
+        // If old was AGENT and new is NOT AGENT -> Clean up old agent debt.
+        // If old was NOT AGENT and new IS AGENT -> Charge new agent debt.
+        // If agent_id changed -> Revert old, charge new.
+        const isAgentChanged = currentBooking.agent_id !== (formData.agent_id || null) || currentBooking.booking_source !== formData.booking_source;
+        const isPartnerChanged = currentBooking.issued_partner_id !== (formData.issued_partner_id || null);
 
-        if (currentBooking.ticket_status !== 'ISSUED' && formData.ticket_status === 'ISSUED' && effectiveCurrency !== 'LKR') {
+        // Broad condition: If anything relevant changed, we re-evaluate financials.
+        // We only care if status is involved OR if it remains ISSUED but details changed.
+        const hasFinancialChange = isStatusChanged || (currentBooking.ticket_status === 'ISSUED' && (isAmountChanged || isAgentChanged || isPartnerChanged));
 
-            // A. Partner Deduction
-            const typeId = formData.booking_type_id || currentBooking.booking_type_id;
-            if (typeId) {
-                const { data: bookingType } = await supabase
-                    .from('booking_types')
-                    .select('balance, name')
-                    .eq('id', typeId)
-                    .single()
+        if (hasFinancialChange) {
 
-                if (bookingType) {
-                    const cost = Number(formData.fare) || 0;
-                    // Removed insufficient funds check
+            // Step A: REVERSE Old Transaction (if it was ISSUED)
+            if (currentBooking.ticket_status === 'ISSUED') {
+                // 1. Reverse Issued Partner (Refund)
+                if (currentBooking.issued_partner_id) {
+                    const { data: oldPartner } = await supabase
+                        .from('issued_partners')
+                        .select('balance')
+                        .eq('id', currentBooking.issued_partner_id)
+                        .single()
 
-                    await supabase
-                        .from('booking_types')
-                        .update({ balance: Number(bookingType.balance) - cost })
-                        .eq('id', typeId)
+                    if (oldPartner) {
+                        const oldCost = Number(currentBooking.fare) || 0;
+                        await supabase
+                            .from('issued_partners')
+                            .update({ balance: Number(oldPartner.balance) + oldCost })
+                            .eq('id', currentBooking.issued_partner_id)
 
-                    await supabase.from('credit_transactions').insert([{
-                        booking_type_id: typeId,
-                        amount: -cost,
-                        transaction_type: 'BOOKING_DEDUCTION',
-                        description: `Booking issuance (update) for PNR ${formData.pnr}`,
-                        reference_id: id
-                    }])
+                        await supabase.from('credit_transactions').insert([{
+                            issued_partner_id: currentBooking.issued_partner_id,
+                            amount: oldCost,
+                            transaction_type: 'REFUND', // or REVERSAL
+                            description: `Update Reversal for PNR ${currentBooking.pnr}`,
+                            reference_id: id
+                        }])
+                    }
+                }
+
+                // 2. Reverse Agent (Reduce Debt)
+                if (currentBooking.agent_id) {
+                    const { data: oldAgent } = await supabase
+                        .from('agents')
+                        .select('balance')
+                        .eq('id', currentBooking.agent_id)
+                        .single()
+
+                    if (oldAgent) {
+                        const oldPrice = Number(currentBooking.selling_price) || 0;
+                        await supabase
+                            .from('agents')
+                            .update({ balance: Number(oldAgent.balance) - oldPrice })
+                            .eq('id', currentBooking.agent_id)
+
+                        await supabase.from('credit_transactions').insert([{
+                            agent_id: currentBooking.agent_id,
+                            amount: -oldPrice,
+                            transaction_type: 'REFUND',
+                            description: `Update Reversal for PNR ${currentBooking.pnr}`,
+                            reference_id: id
+                        }])
+                    }
                 }
             }
 
-            // B. Agent Debt
-            const agentId = formData.agent_id || currentBooking.agent_id;
-            if (agentId) {
-                const { data: agent } = await supabase
-                    .from('agents')
-                    .select('balance, name')
-                    .eq('id', agentId)
-                    .single()
+            // Step B: CHARGE New Transaction (if it becomes/stays ISSUED)
+            // Note: currency check should apply. Assuming 'LKR' logic from createBooking applies here too?
+            // "if (formData.ticket_status === 'ISSUED' && formData.currency !== 'LKR')"
+            const effectiveCurrency = formData.currency || currentBooking.currency || 'EUR';
 
-                if (agent) {
-                    const price = Number(formData.selling_price) || 0;
-                    const newAgentBalance = Number(agent.balance) + price;
+            if (formData.ticket_status === 'ISSUED' && effectiveCurrency !== 'LKR') {
+                const newCost = Number(formData.fare) || 0;
+                const newPrice = Number(formData.selling_price) || 0;
 
-                    await supabase
+                // 1. Charge Issued Partner
+                const newPartnerId = formData.issued_partner_id;
+                if (newPartnerId) {
+                    const { data: newPartner } = await supabase
+                        .from('issued_partners')
+                        .select('balance')
+                        .eq('id', newPartnerId)
+                        .single()
+
+                    if (newPartner) {
+                        await supabase
+                            .from('issued_partners')
+                            .update({ balance: Number(newPartner.balance) - newCost })
+                            .eq('id', newPartnerId)
+
+                        await supabase.from('credit_transactions').insert([{
+                            issued_partner_id: newPartnerId,
+                            amount: -newCost,
+                            transaction_type: 'BOOKING_DEDUCTION',
+                            description: `Booking issuance (update) for PNR ${formData.pnr}`,
+                            reference_id: id
+                        }])
+                    }
+                }
+
+                // 2. Charge Agent (Add Debt)
+                // ONLY if booking_source is 'AGENT'
+                // Note: We use formData.booking_source (or fallback to 'AGENT' if undefined provided it logic matches createBooking defaults)
+                const newSource = formData.booking_source || 'AGENT'; // Default to AGENT if missing in update?
+                const newAgentId = formData.agent_id; // Should be set if source is AGENT, else null.
+
+                if (newSource === 'AGENT' && newAgentId) {
+                    const { data: newAgent } = await supabase
                         .from('agents')
-                        .update({ balance: newAgentBalance })
-                        .eq('id', agentId)
+                        .select('balance')
+                        .eq('id', newAgentId)
+                        .single()
 
-                    await supabase.from('credit_transactions').insert([{
-                        agent_id: agentId,
-                        amount: price,
-                        transaction_type: 'BOOKING_DEDUCTION',
-                        description: `Booking issuance (update) for PNR ${formData.pnr}`,
-                        reference_id: id
-                    }])
+                    if (newAgent) {
+                        await supabase
+                            .from('agents')
+                            .update({ balance: Number(newAgent.balance) + newPrice })
+                            .eq('id', newAgentId)
+
+                        await supabase.from('credit_transactions').insert([{
+                            agent_id: newAgentId,
+                            amount: newPrice,
+                            transaction_type: 'BOOKING_DEDUCTION',
+                            description: `Booking issuance (update) for PNR ${formData.pnr}`,
+                            reference_id: id
+                        }])
+                    }
                 }
             }
         }
@@ -271,8 +348,11 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
             origin: formData.origin,
             destination: formData.destination,
-            agent_id: formData.agent_id || null,
-            booking_type_id: formData.booking_type_id || null,
+            // Agent Logic: Only set agent_id if source is AGENT
+            agent_id: (formData.booking_source === 'AGENT' && formData.agent_id) ? formData.agent_id : null,
+            booking_source: formData.booking_source || 'AGENT',
+
+            issued_partner_id: formData.issued_partner_id || null,
 
             ticket_status: formData.ticket_status,
             ticket_issued_date: formData.ticket_issued_date || null,
@@ -306,14 +386,14 @@ export type BookingFilters = {
     startDate?: string;
     endDate?: string;
     agentId?: string;
-    bookingTypeId?: string;
+    issuedPartnerId?: string;
     page?: number;
     limit?: number;
 }
 
 export async function getBookings(filters: BookingFilters | string = {}) {
     // Backward compatibility: if string, treat as query
-    const { query, status, platform, airline, startDate, endDate, agentId, bookingTypeId, page, limit } =
+    const { query, status, platform, airline, startDate, endDate, agentId, issuedPartnerId, page, limit } =
         typeof filters === 'string' ? { query: filters } as BookingFilters : filters;
 
     const supabase = await createClient()
@@ -323,8 +403,9 @@ export async function getBookings(filters: BookingFilters | string = {}) {
         .select(`
             *,
             agent:agents(name),
-            booking_type:booking_types(name)
+            issued_partner:issued_partners(name)
         `, { count: 'exact' })
+        .eq('is_deleted', false)
 
     if (query) {
         // Sanitize query to prevent breaking PostgREST 'or' syntax (commas are separators)
@@ -358,8 +439,8 @@ export async function getBookings(filters: BookingFilters | string = {}) {
         dbQuery = dbQuery.eq('agent_id', agentId)
     }
 
-    if (bookingTypeId && bookingTypeId !== 'ALL') {
-        dbQuery = dbQuery.eq('booking_type_id', bookingTypeId)
+    if (issuedPartnerId && issuedPartnerId !== 'ALL') {
+        dbQuery = dbQuery.eq('issued_partner_id', issuedPartnerId)
     }
 
     // Pagination
@@ -384,9 +465,73 @@ export async function getBookings(filters: BookingFilters | string = {}) {
 export async function deleteBooking(id: string) {
     const supabase = await createClient()
 
+    // 1. Fetch booking to check status and reverse credits if needed
+    const { data: booking } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('id', id)
+        .single()
+
+    if (booking && booking.ticket_status === 'ISSUED') {
+        const cost = Number(booking.fare) || 0
+        const price = Number(booking.selling_price) || 0
+
+        // A. Reverse Issued Partner (Refund the deduction)
+        if (booking.issued_partner_id) {
+            const { data: partner } = await supabase
+                .from('issued_partners')
+                .select('balance')
+                .eq('id', booking.issued_partner_id)
+                .single()
+
+            if (partner) {
+                await supabase
+                    .from('issued_partners')
+                    .update({ balance: Number(partner.balance) + cost }) // Add back the cost
+                    .eq('id', booking.issued_partner_id)
+
+                await supabase.from('credit_transactions').insert([{
+                    issued_partner_id: booking.issued_partner_id,
+                    amount: cost, // Positive amount = Refund
+                    transaction_type: 'REFUND',
+                    description: `Booking deletion reversal for PNR ${booking.pnr}`,
+                    reference_id: id // keeping ID even if booking deleted? Or null? Maybe null is safer if constraint checks FK. Let's use null to be safe or assuming transaction log isn't identifying by FK to booking (it might).
+                    // Actually, if reference_id is FK to booking(id) ON DELETE SET NULL/CASCADE, then it matters.
+                    // Assuming reference_id is nullable.
+                }])
+            }
+        }
+
+        // B. Reverse Agent (Reduce the Debt)
+        // ONLY if it was an AGENT booking (booking_source 'AGENT' check or just existence of agent_id?)
+        // Safer to check simple existence of agent_id + booking_source check if we rely on it, but agent_id presence on ISSUED booking implies debt was added.
+        if (booking.agent_id) {
+            const { data: agent } = await supabase
+                .from('agents')
+                .select('balance')
+                .eq('id', booking.agent_id)
+                .single()
+
+            if (agent) {
+                await supabase
+                    .from('agents')
+                    .update({ balance: Number(agent.balance) - price }) // Reduce debt
+                    .eq('id', booking.agent_id)
+
+                await supabase.from('credit_transactions').insert([{
+                    agent_id: booking.agent_id,
+                    amount: -price, // Negative amount = Reduce Debt
+                    transaction_type: 'REFUND', // 'REFUND' or 'ADJUSTMENT'
+                    description: `Booking deletion reversal for PNR ${booking.pnr}`,
+                    reference_id: null
+                }])
+            }
+        }
+    }
+
     const { error } = await supabase
         .from('bookings')
-        .delete()
+        .update({ is_deleted: true })
         .eq('id', id)
 
     if (error) {
@@ -462,7 +607,7 @@ export async function getBookingHistory(bookingId: string): Promise<BookingHisto
 
 export async function getAgents() {
     const supabase = await createClient()
-    const { data, error } = await supabase.from('agents').select('*').order('name')
+    const { data, error } = await supabase.from('agents').select('*').eq('is_deleted', false).order('name')
     if (error) return []
     return data
 }
@@ -491,7 +636,7 @@ export async function updateAgent(id: string, name: string) {
 
 export async function deleteAgent(id: string) {
     const supabase = await createClient()
-    const { error } = await supabase.from('agents').delete().eq('id', id)
+    const { error } = await supabase.from('agents').update({ is_deleted: true }).eq('id', id)
 
     if (error) return { error: error.message }
 
@@ -500,18 +645,18 @@ export async function deleteAgent(id: string) {
     return { success: true }
 }
 
-// --- Booking Types ---
+// --- Issued Partners ---
 
-export async function getBookingTypes() {
+export async function getIssuedPartners() {
     const supabase = await createClient()
-    const { data, error } = await supabase.from('booking_types').select('*').order('name')
+    const { data, error } = await supabase.from('issued_partners').select('*').eq('is_deleted', false).order('name')
     if (error) return []
     return data
 }
 
-export async function createBookingType(name: string) {
+export async function createIssuedPartner(name: string) {
     const supabase = await createClient()
-    const { data, error } = await supabase.from('booking_types').insert([{ name }]).select().single()
+    const { data, error } = await supabase.from('issued_partners').insert([{ name }]).select().single()
 
     if (error) return { error: error.message }
 
@@ -520,9 +665,9 @@ export async function createBookingType(name: string) {
     return { data }
 }
 
-export async function updateBookingType(id: string, name: string) {
+export async function updateIssuedPartner(id: string, name: string) {
     const supabase = await createClient()
-    const { data, error } = await supabase.from('booking_types').update({ name }).eq('id', id).select().single()
+    const { data, error } = await supabase.from('issued_partners').update({ name }).eq('id', id).select().single()
 
     if (error) return { error: error.message }
 
@@ -531,9 +676,9 @@ export async function updateBookingType(id: string, name: string) {
     return { data }
 }
 
-export async function deleteBookingType(id: string) {
+export async function deleteIssuedPartner(id: string) {
     const supabase = await createClient()
-    const { error } = await supabase.from('booking_types').delete().eq('id', id)
+    const { error } = await supabase.from('issued_partners').update({ is_deleted: true }).eq('id', id)
 
     if (error) return { error: error.message }
 
@@ -546,7 +691,7 @@ export async function deleteBookingType(id: string) {
 
 export async function getPlatforms() {
     const supabase = await createClient()
-    const { data, error } = await supabase.from('platforms').select('*').order('name')
+    const { data, error } = await supabase.from('platforms').select('*').eq('is_deleted', false).order('name')
     if (error) return []
     return data
 }
@@ -575,7 +720,7 @@ export async function updatePlatform(id: string, name: string) {
 
 export async function deletePlatform(id: string) {
     const supabase = await createClient()
-    const { error } = await supabase.from('platforms').delete().eq('id', id)
+    const { error } = await supabase.from('platforms').update({ is_deleted: true }).eq('id', id)
 
     if (error) return { error: error.message }
 
@@ -629,7 +774,8 @@ export async function cloneBookingWithNewStatus(originalBookingId: string, newSt
         origin: original.origin,
         destination: original.destination,
         agent_id: original.agent_id,
-        booking_type_id: original.booking_type_id,
+        booking_source: original.booking_source,
+        issued_partner_id: original.issued_partner_id || original.booking_type_id, // Fallback for old records if DB just migrated but data object still had old key? (Actually type will enforcement requires issued_partner_id)
 
         ticket_status: newStatus as 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'CANCELED', // THE CHANGE
         ticket_issued_date: original.ticket_issued_date, // Keep original issue date?

@@ -28,7 +28,7 @@ import { getTransactions, updateTransactionAmount } from "./actions"
 interface TransactionHistoryModalProps {
     id: string
     name: string
-    type: 'booking_type' | 'agent'
+    type: 'issued_partner' | 'agent'
     children?: React.ReactNode
 }
 
@@ -122,8 +122,8 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
                                         </TableCell>
                                         <TableCell>
                                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${tx.transaction_type === 'TOPUP'
-                                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                                    : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
                                                 }`}>
                                                 {tx.transaction_type === 'TOPUP'
                                                     ? (type === 'agent' ? 'PAYMENT' : 'TOP UP')

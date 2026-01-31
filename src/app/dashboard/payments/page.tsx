@@ -1,10 +1,10 @@
-import { getBookingTypes } from "../bookings/actions";
+import { getIssuedPartners } from "../bookings/actions";
 import { getAgentsWithBalance } from "./actions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BalanceCardsView } from "./credits-view";
 
 export default async function PaymentsPage() {
-    const bookingTypes = await getBookingTypes();
+    const issuedPartners = await getIssuedPartners();
     const agents = await getAgentsWithBalance();
 
     return (
@@ -23,8 +23,8 @@ export default async function PaymentsPage() {
 
                 <TabsContent value="issuing_partners" className="space-y-4">
                     <BalanceCardsView
-                        items={bookingTypes}
-                        type="booking_type"
+                        items={issuedPartners}
+                        type="issued_partner"
                         buttonLabel="Top Up"
                     />
                 </TabsContent>

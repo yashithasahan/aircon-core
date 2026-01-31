@@ -6,7 +6,7 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { BookingFilters } from "@/components/dashboard/booking-filters";
-import { getBookings, getAgents, getBookingTypes, getPlatforms } from "@/app/dashboard/bookings/actions";
+import { getBookings, getAgents, getIssuedPartners, getPlatforms } from "@/app/dashboard/bookings/actions";
 import { BookingsTable } from "@/components/dashboard/bookings-table";
 import { getPassengers } from "@/app/dashboard/passengers/actions";
 import { ExportButton } from "@/components/dashboard/reports/export-button";
@@ -63,7 +63,7 @@ export default async function ReportsPage({
 
     const passengers = await getPassengers();
     const agents = await getAgents();
-    const bookingTypes = await getBookingTypes();
+    const issuedPartners = await getIssuedPartners();
     const platforms = await getPlatforms();
 
     const totalPages = Math.ceil((count || 0) / limit);
@@ -83,7 +83,7 @@ export default async function ReportsPage({
             </div>
 
             {/* Filters */}
-            <BookingFilters platforms={platforms} agents={agents} bookingTypes={bookingTypes} />
+            <BookingFilters platforms={platforms} agents={agents} issuedPartners={issuedPartners} />
 
             {/* Results */}
             <Card className="border-slate-200 dark:border-slate-800 shadow-sm bg-white/50 dark:bg-slate-950/50 backdrop-blur-sm">
@@ -100,7 +100,7 @@ export default async function ReportsPage({
                         bookings={bookings}
                         passengers={passengers}
                         agents={agents}
-                        bookingTypes={bookingTypes}
+                        issuedPartners={issuedPartners}
                         platforms={platforms}
                         readOnly={true}
                     />

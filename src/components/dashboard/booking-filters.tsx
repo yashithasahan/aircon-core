@@ -24,17 +24,17 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Platform, Agent, BookingType } from "@/types"
+import { Platform, Agent, IssuedPartner } from "@/types"
 import { Card, CardContent } from "@/components/ui/card"
 
 interface BookingFiltersProps {
     platforms: Platform[]
     agents: Agent[]
-    bookingTypes: BookingType[]
+    issuedPartners: IssuedPartner[]
     children?: React.ReactNode
 }
 
-export function BookingFilters({ platforms, agents, bookingTypes, children }: BookingFiltersProps) {
+export function BookingFilters({ platforms, agents, issuedPartners, children }: BookingFiltersProps) {
     const router = useRouter()
     const pathname = usePathname()
     const searchParams = useSearchParams()
@@ -52,7 +52,7 @@ export function BookingFilters({ platforms, agents, bookingTypes, children }: Bo
     const [platform, setPlatform] = React.useState(searchParams.get("platform") || "ALL")
     const [airline, setAirline] = React.useState(searchParams.get("airline") || "")
     const [agentId, setAgentId] = React.useState(searchParams.get("agentId") || "ALL")
-    const [bookingTypeId, setBookingTypeId] = React.useState(searchParams.get("bookingTypeId") || "ALL")
+    const [issuedPartnerId, setIssuedPartnerId] = React.useState(searchParams.get("issuedPartnerId") || "ALL")
 
     // Update local state when URL params change (e.g. Back button)
     React.useEffect(() => {
@@ -60,7 +60,7 @@ export function BookingFilters({ platforms, agents, bookingTypes, children }: Bo
         setPlatform(searchParams.get("platform") || "ALL")
         setAirline(searchParams.get("airline") || "")
         setAgentId(searchParams.get("agentId") || "ALL")
-        setBookingTypeId(searchParams.get("bookingTypeId") || "ALL")
+        setIssuedPartnerId(searchParams.get("issuedPartnerId") || "ALL")
         setDate({
             from: searchParams.get("from") ? new Date(searchParams.get("from")!) : undefined,
             to: searchParams.get("to") ? new Date(searchParams.get("to")!) : undefined,
@@ -72,7 +72,7 @@ export function BookingFilters({ platforms, agents, bookingTypes, children }: Bo
         platform !== "ALL",
         airline !== "",
         agentId !== "ALL",
-        bookingTypeId !== "ALL",
+        issuedPartnerId !== "ALL",
         date?.from
     ].filter(Boolean).length
 
@@ -91,8 +91,8 @@ export function BookingFilters({ platforms, agents, bookingTypes, children }: Bo
         if (agentId && agentId !== "ALL") params.set("agentId", agentId)
         else params.delete("agentId")
 
-        if (bookingTypeId && bookingTypeId !== "ALL") params.set("bookingTypeId", bookingTypeId)
-        else params.delete("bookingTypeId")
+        if (issuedPartnerId && issuedPartnerId !== "ALL") params.set("issuedPartnerId", issuedPartnerId)
+        else params.delete("issuedPartnerId")
 
         if (date?.from) params.set("from", format(date.from, "yyyy-MM-dd"))
         else params.delete("from")
@@ -112,7 +112,7 @@ export function BookingFilters({ platforms, agents, bookingTypes, children }: Bo
         setPlatform("ALL")
         setAirline("")
         setAgentId("ALL")
-        setBookingTypeId("ALL")
+        setIssuedPartnerId("ALL")
         setDate(undefined)
 
         // Clear URL
@@ -121,7 +121,7 @@ export function BookingFilters({ platforms, agents, bookingTypes, children }: Bo
         params.delete("platform")
         params.delete("airline")
         params.delete("agentId")
-        params.delete("bookingTypeId")
+        params.delete("issuedPartnerId")
         params.delete("from")
         params.delete("to")
 
@@ -214,14 +214,14 @@ export function BookingFilters({ platforms, agents, bookingTypes, children }: Bo
 
                             {/* Issued From */}
                             <div className="space-y-2">
-                                <Label>Issued From</Label>
-                                <Select value={bookingTypeId} onValueChange={setBookingTypeId}>
+                                <Label>Issued Partners</Label>
+                                <Select value={issuedPartnerId} onValueChange={setIssuedPartnerId}>
                                     <SelectTrigger>
-                                        <SelectValue placeholder="All types" />
+                                        <SelectValue placeholder="All Partners" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="ALL">All Types</SelectItem>
-                                        {bookingTypes.map(b => (
+                                        <SelectItem value="ALL">All Partners</SelectItem>
+                                        {issuedPartners.map(b => (
                                             <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                                         ))}
                                     </SelectContent>

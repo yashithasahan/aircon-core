@@ -6,7 +6,7 @@ import { TransactionHistoryModal } from "./transaction-history-modal";
 
 interface BalanceCardsViewProps {
     items: any[]
-    type: 'booking_type' | 'agent'
+    type: 'issued_partner' | 'agent'
     buttonLabel?: string
     emptyMessage?: string
     comingSoon?: boolean // If true, disable transaction history or similar
