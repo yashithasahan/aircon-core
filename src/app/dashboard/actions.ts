@@ -21,6 +21,7 @@ export async function getDashboardStats(dateStr?: string) {
         .gte('created_at', startOfMonth.toISOString())
         .lt('created_at', endOfMonth.toISOString())
         .neq('currency', 'LKR')
+        .eq('is_deleted', false)
 
     if (error) {
         console.error('Error fetching stats:', error)
@@ -53,6 +54,7 @@ export async function getRecentSales() {
         .from('bookings')
         .select('*')
         .neq('currency', 'LKR')
+        .eq('is_deleted', false)
         .order('created_at', { ascending: false })
         .limit(5)
 
@@ -71,6 +73,7 @@ export async function getAgentCreditStats() {
     const { data: types, error } = await supabase
         .from('issued_partners')
         .select('id, name, balance')
+        .eq('is_deleted', false)
         .order('name')
 
     if (error || !types) return []
@@ -88,6 +91,7 @@ export async function getAgentCreditStats() {
             .eq('ticket_status', 'ISSUED')
             .eq('entry_date', today)
             .neq('currency', 'LKR')
+            .eq('is_deleted', false)
 
         return {
             ...type,
@@ -105,11 +109,13 @@ export async function getFinancialSummary() {
     const { data: partners, error: partnerError } = await supabase
         .from('issued_partners')
         .select('balance')
+        .eq('is_deleted', false)
 
     // 2. Get Agent Debt (Sum of agents.balance)
     const { data: agents, error: agentError } = await supabase
         .from('agents')
         .select('balance')
+        .eq('is_deleted', false)
 
     if (partnerError || agentError) {
         console.error("Error fetching financial summary", partnerError, agentError)
