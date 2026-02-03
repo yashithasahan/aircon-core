@@ -642,6 +642,7 @@ export async function deleteAgent(id: string) {
 
     revalidatePath('/dashboard/entities')
     revalidatePath('/dashboard/bookings')
+    revalidatePath('/dashboard/payments')
     return { success: true }
 }
 
@@ -684,6 +685,7 @@ export async function deleteIssuedPartner(id: string) {
 
     revalidatePath('/dashboard/entities')
     revalidatePath('/dashboard/bookings')
+    revalidatePath('/dashboard/payments')
     return { success: true }
 }
 
@@ -726,6 +728,7 @@ export async function deletePlatform(id: string) {
 
     revalidatePath('/dashboard/entities')
     revalidatePath('/dashboard/bookings')
+    revalidatePath('/dashboard/payments')
     return { success: true }
 }
 
