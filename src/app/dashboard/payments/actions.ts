@@ -3,7 +3,13 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-export async function topUpCredit(id: string, entityType: 'issued_partner' | 'agent', amount: number, description?: string) {
+export async function topUpCredit(
+    id: string,
+    entityType: 'issued_partner' | 'agent',
+    amount: number,
+    description?: string,
+    customDate?: string
+) {
     const supabase = await createClient()
 
     const table = entityType === 'issued_partner' ? 'issued_partners' : 'agents';
@@ -34,7 +40,7 @@ export async function topUpCredit(id: string, entityType: 'issued_partner' | 'ag
     }
 
     // 3. Log Transaction
-    const transactionData = {
+    const transactionData: any = {
         amount: amount,
         transaction_type: 'TOPUP',
         description: description || `Manual ${entityType === 'agent' ? 'Payment' : 'Top Up'}`,
@@ -42,6 +48,10 @@ export async function topUpCredit(id: string, entityType: 'issued_partner' | 'ag
         issued_partner_id: entityType === 'issued_partner' ? id : null,
         agent_id: entityType === 'agent' ? id : null
     };
+
+    if (customDate) {
+        transactionData.created_at = customDate;
+    }
 
     const { error: logError } = await supabase
         .from('credit_transactions')
