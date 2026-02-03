@@ -27,6 +27,7 @@ interface TopUpModalProps {
 export function TopUpModal({ id, name, type, buttonLabel = "Top Up" }: TopUpModalProps) {
     const [open, setOpen] = useState(false)
     const [amount, setAmount] = useState("")
+    const [date, setDate] = useState("")
     const [loading, setLoading] = useState(false)
 
     async function handleTopUp() {
@@ -37,10 +38,17 @@ export function TopUpModal({ id, name, type, buttonLabel = "Top Up" }: TopUpModa
 
         setLoading(true)
         try {
-            await topUpCredit(id, type, Number(amount), `Manual ${buttonLabel} via Dashboard`)
+            // Convert datetime-local string to ISO if present
+            let formattedDate = undefined;
+            if (date) {
+                formattedDate = new Date(date).toISOString();
+            }
+
+            await topUpCredit(id, type, Number(amount), `Manual ${buttonLabel} via Dashboard`, formattedDate)
             toast.success(`Successfully added €${amount} to ${name}`)
             setOpen(false)
             setAmount("")
+            setDate("")
         } catch (error: any) {
             toast.error(error.message || "Failed to process")
         } finally {
@@ -77,6 +85,21 @@ export function TopUpModal({ id, name, type, buttonLabel = "Top Up" }: TopUpModa
                             placeholder="e.g. 1000"
                             autoFocus
                         />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="date" className="text-right">
+                            Date
+                        </Label>
+                        <Input
+                            id="date"
+                            type="datetime-local"
+                            value={date}
+                            onChange={(e) => setDate(e.target.value)}
+                            className="col-span-3"
+                        />
+                        <p className="text-[0.8rem] text-muted-foreground col-start-2 col-span-3">
+                            Leave empty for current time.
+                        </p>
                     </div>
                 </div>
                 <DialogFooter>
