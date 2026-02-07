@@ -7,6 +7,19 @@ export interface ChangeLogItem {
 
 export const changelog: ChangeLogItem[] = [
     {
+        version: "1.0.5",
+        date: "2026-02-07",
+        changes: [
+            "Implemented 'Soft Delete' for Bookings, Agents, Partners, and Passengers to preserve historical data.",
+            "Added 'Manual Date Selection' for Payments/Top-ups, allowing backdated transactions.",
+            "Fixed Dashboard Overview statistics to use 'Entry Date' instead of 'Creation Date' for accurate monthly reporting.",
+            "Fixed Payments Tab showing deleted Agents/Partners.",
+            "Visual improvements: Removed deleted entities from dropdown selections.",
+            "Refined Dashboard Date Logic: Switched to 'Ticket Issued Date' for accurate financial reporting.",
+            "Refactored Dashboard Layout: Separated Monthly Performance metrics from Global Financial Status (Total Debt) for clarity.",
+        ]
+    },
+    {
         version: "1.0.4",
         date: "2026-01-11",
         changes: [

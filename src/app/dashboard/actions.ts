@@ -18,8 +18,8 @@ export async function getDashboardStats(dateStr?: string) {
     const { data: bookings, error } = await supabase
         .from('bookings')
         .select('selling_price, profit, id')
-        .gte('created_at', startOfMonth.toISOString())
-        .lt('created_at', endOfMonth.toISOString())
+        .gte('ticket_issued_date', startOfMonth.toISOString())
+        .lt('ticket_issued_date', endOfMonth.toISOString())
         .neq('currency', 'LKR')
         .eq('is_deleted', false)
 
@@ -46,8 +46,14 @@ export async function getDashboardStats(dateStr?: string) {
     }
 }
 
-export async function getRecentSales() {
+export async function getRecentSales(dateStr?: string) {
     const supabase = await createClient()
+
+    // Determine date range (aligned with dashboard stats)
+    const targetDate = dateStr ? new Date(dateStr + '-01') : new Date()
+    const validDate = isNaN(targetDate.getTime()) ? new Date() : targetDate
+    const startOfMonth = new Date(validDate.getFullYear(), validDate.getMonth(), 1)
+    const endOfMonth = new Date(validDate.getFullYear(), validDate.getMonth() + 1, 1)
 
     // Fetch last 5 bookings
     const { data: recent, error } = await supabase
@@ -55,7 +61,9 @@ export async function getRecentSales() {
         .select('*')
         .neq('currency', 'LKR')
         .eq('is_deleted', false)
-        .order('created_at', { ascending: false })
+        .gte('ticket_issued_date', startOfMonth.toISOString())
+        .lt('ticket_issued_date', endOfMonth.toISOString())
+        .order('ticket_issued_date', { ascending: false })
         .limit(5)
 
     if (error) {
@@ -66,7 +74,7 @@ export async function getRecentSales() {
     return recent
 }
 
-export async function getAgentCreditStats() {
+export async function getAgentCreditStats(dateStr?: string) {
     const supabase = await createClient()
 
     // Get all types
@@ -78,10 +86,11 @@ export async function getAgentCreditStats() {
 
     if (error || !types) return []
 
-    // For each, get count of VALID tickets issued TODAY
-    // We define "Today" based on server time or entry_date? 
-    // Usually entry_date is the business date. Let's use entry_date = current YYYY-MM-DD.
-    const today = new Date().toISOString().split('T')[0]
+    // Date Range
+    const targetDate = dateStr ? new Date(dateStr + '-01') : new Date()
+    const validDate = isNaN(targetDate.getTime()) ? new Date() : targetDate
+    const startOfMonth = new Date(validDate.getFullYear(), validDate.getMonth(), 1)
+    const endOfMonth = new Date(validDate.getFullYear(), validDate.getMonth() + 1, 1)
 
     const stats = await Promise.all(types.map(async (type) => {
         const { count, error: countError } = await supabase
@@ -89,7 +98,8 @@ export async function getAgentCreditStats() {
             .select('*', { count: 'exact', head: true }) // count only
             .eq('issued_partner_id', type.id)
             .eq('ticket_status', 'ISSUED')
-            .eq('entry_date', today)
+            .gte('ticket_issued_date', startOfMonth.toISOString())
+            .lt('ticket_issued_date', endOfMonth.toISOString())
             .neq('currency', 'LKR')
             .eq('is_deleted', false)
 
