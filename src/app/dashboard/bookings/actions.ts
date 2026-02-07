@@ -224,18 +224,22 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
                     if (oldPartner) {
                         const oldCost = Number(currentBooking.fare) || 0;
-                        await supabase
+                        const { error: refundError } = await supabase
                             .from('issued_partners')
                             .update({ balance: Number(oldPartner.balance) + oldCost })
                             .eq('id', currentBooking.issued_partner_id)
 
-                        await supabase.from('credit_transactions').insert([{
+                        if (refundError) throw new Error(`Failed to refund partner: ${refundError.message}`)
+
+                        const { error: logError } = await supabase.from('credit_transactions').insert([{
                             issued_partner_id: currentBooking.issued_partner_id,
                             amount: oldCost,
                             transaction_type: 'REFUND', // or REVERSAL
                             description: `Update Reversal for PNR ${currentBooking.pnr}`,
                             reference_id: id
                         }])
+
+                        if (logError) throw new Error(`Failed to log refund: ${logError.message}`)
                     }
                 }
 
@@ -249,25 +253,28 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
                     if (oldAgent) {
                         const oldPrice = Number(currentBooking.selling_price) || 0;
-                        await supabase
+                        const { error: reduceError } = await supabase
                             .from('agents')
                             .update({ balance: Number(oldAgent.balance) - oldPrice })
                             .eq('id', currentBooking.agent_id)
 
-                        await supabase.from('credit_transactions').insert([{
+                        if (reduceError) throw new Error(`Failed to reduce agent debt: ${reduceError.message}`)
+
+                        const { error: logError } = await supabase.from('credit_transactions').insert([{
                             agent_id: currentBooking.agent_id,
                             amount: -oldPrice,
                             transaction_type: 'REFUND',
                             description: `Update Reversal for PNR ${currentBooking.pnr}`,
                             reference_id: id
                         }])
+
+                        if (logError) throw new Error(`Failed to log agent refund: ${logError.message}`)
                     }
                 }
             }
 
             // Step B: CHARGE New Transaction (if it becomes/stays ISSUED)
-            // Note: currency check should apply. Assuming 'LKR' logic from createBooking applies here too?
-            // "if (formData.ticket_status === 'ISSUED' && formData.currency !== 'LKR')"
+            // Note: currency check should apply.
             const effectiveCurrency = formData.currency || currentBooking.currency || 'EUR';
 
             if (formData.ticket_status === 'ISSUED' && effectiveCurrency !== 'LKR') {
@@ -284,26 +291,28 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                         .single()
 
                     if (newPartner) {
-                        await supabase
+                        const { error: chargeError } = await supabase
                             .from('issued_partners')
                             .update({ balance: Number(newPartner.balance) - newCost })
                             .eq('id', newPartnerId)
 
-                        await supabase.from('credit_transactions').insert([{
+                        if (chargeError) throw new Error(`Failed to charge partner: ${chargeError.message}`)
+
+                        const { error: logError } = await supabase.from('credit_transactions').insert([{
                             issued_partner_id: newPartnerId,
                             amount: -newCost,
                             transaction_type: 'BOOKING_DEDUCTION',
                             description: `Booking issuance (update) for PNR ${formData.pnr}`,
                             reference_id: id
                         }])
+
+                        if (logError) throw new Error(`Failed to log deduction: ${logError.message}`)
                     }
                 }
 
                 // 2. Charge Agent (Add Debt)
-                // ONLY if booking_source is 'AGENT'
-                // Note: We use formData.booking_source (or fallback to 'AGENT' if undefined provided it logic matches createBooking defaults)
-                const newSource = formData.booking_source || 'AGENT'; // Default to AGENT if missing in update?
-                const newAgentId = formData.agent_id; // Should be set if source is AGENT, else null.
+                const newSource = formData.booking_source || 'AGENT';
+                const newAgentId = formData.agent_id;
 
                 if (newSource === 'AGENT' && newAgentId) {
                     const { data: newAgent } = await supabase
@@ -313,18 +322,22 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                         .single()
 
                     if (newAgent) {
-                        await supabase
+                        const { error: debtError } = await supabase
                             .from('agents')
                             .update({ balance: Number(newAgent.balance) + newPrice })
                             .eq('id', newAgentId)
 
-                        await supabase.from('credit_transactions').insert([{
+                        if (debtError) throw new Error(`Failed to add agent debt: ${debtError.message}`)
+
+                        const { error: logError } = await supabase.from('credit_transactions').insert([{
                             agent_id: newAgentId,
                             amount: newPrice,
                             transaction_type: 'BOOKING_DEDUCTION',
                             description: `Booking issuance (update) for PNR ${formData.pnr}`,
                             reference_id: id
                         }])
+
+                        if (logError) throw new Error(`Failed to log agent debt: ${logError.message}`)
                     }
                 }
             }
