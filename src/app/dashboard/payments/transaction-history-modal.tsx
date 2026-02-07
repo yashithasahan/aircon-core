@@ -121,19 +121,77 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
                                             {format(new Date(tx.created_at), "MMM d, yyyy HH:mm")}
                                         </TableCell>
                                         <TableCell>
-                                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${tx.transaction_type === 'TOPUP'
-                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                                                }`}>
-                                                {tx.transaction_type === 'TOPUP'
-                                                    ? (type === 'agent' ? 'PAYMENT' : 'TOP UP')
-                                                    : 'BOOKING'}
-                                            </span>
+                                            {(() => {
+                                                let badgeColor = 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300';
+                                                let label = 'UNKNOWN';
+
+                                                if (tx.transaction_type === 'TOPUP') {
+                                                    badgeColor = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400';
+                                                    label = type === 'agent' ? 'PAYMENT' : 'TOP UP';
+                                                } else if (tx.transaction_type === 'BOOKING_DEDUCTION') {
+                                                    // Normal Booking -> Green (as per user request "green for normal")
+                                                    badgeColor = 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+                                                    label = 'BOOKING';
+                                                } else if (tx.transaction_type === 'REFUND') {
+                                                    if (tx.description?.toLowerCase().includes('deletion')) {
+                                                        // "Red for delete"
+                                                        badgeColor = 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
+                                                        label = 'DELETED';
+                                                    } else if (tx.description?.toLowerCase().includes('update') || tx.description?.toLowerCase().includes('reversal')) {
+                                                        // "White for update" (using gray/neutral as white is invisible on white bg)
+                                                        badgeColor = 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
+                                                        label = 'UPDATE';
+                                                    } else {
+                                                        // Generic Refund
+                                                        badgeColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
+                                                        label = 'REFUND';
+                                                    }
+                                                }
+
+                                                return (
+                                                    <span className={`px-2 py-1 rounded-full text-xs font-medium border ${badgeColor}`}>
+                                                        {label}
+                                                    </span>
+                                                );
+                                            })()}
                                         </TableCell>
-                                        <TableCell className="max-w-[200px] truncate" title={tx.description}>
-                                            {tx.description}
+                                        <TableCell className="max-w-[300px]">
+                                            <div className="flex flex-col gap-1">
+                                                {(() => {
+                                                    // Extract PNR
+                                                    const pnrMatch = tx.description?.match(/PNR\s+([A-Z0-9]+)/i);
+                                                    const pnr = pnrMatch ? pnrMatch[1] : null;
+
+                                                    // Clean Description (remove "for PNR ...")
+                                                    let cleanDesc = tx.description
+                                                        ?.replace(/for\s+PNR\s+[A-Z0-9]+/i, '')
+                                                        .replace(/Booking\s+issuance/i, 'Issuance')
+                                                        .replace(/Booking\s+deletion\s+reversal/i, 'Deletion Reversal')
+                                                        .replace(/Update\s+Reversal/i, 'Update Reversal')
+                                                        .trim();
+
+                                                    // If description became empty or just "Issuance", maybe keep it simple?
+                                                    // "Issuance" is clean enough.
+
+                                                    return (
+                                                        <div className="flex items-center gap-2">
+                                                            {pnr && (
+                                                                <span className="px-1.5 py-0.5 rounded border bg-slate-50 dark:bg-slate-900 text-[10px] font-mono font-bold">
+                                                                    {pnr}
+                                                                </span>
+                                                            )}
+                                                            <span className="text-sm truncate" title={tx.description}>
+                                                                {cleanDesc || tx.description}
+                                                            </span>
+                                                        </div>
+                                                    )
+                                                })()}
+                                            </div>
                                         </TableCell>
-                                        <TableCell className="text-right font-mono">
+                                        <TableCell className={`text-right font-mono font-medium ${Number(tx.amount) > 0
+                                                ? 'text-green-600 dark:text-green-400'
+                                                : 'text-red-600 dark:text-red-400'
+                                            }`}>
                                             {editingId === tx.id ? (
                                                 <Input
                                                     type="number"
