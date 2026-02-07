@@ -12,8 +12,8 @@ export default async function DashboardPage({
 }) {
     const { date: dateParam } = await searchParams;
     const stats = await getDashboardStats(dateParam);
-    const recentSales = await getRecentSales();
-    const agentCredits = await getAgentCreditStats();
+    const recentSales = await getRecentSales(dateParam);
+    const agentCredits = await getAgentCreditStats(dateParam);
     const portfolio = await getFinancialSummary();
 
     // Calculate display label for current selection
@@ -36,8 +36,8 @@ export default async function DashboardPage({
                 <MonthSelector />
             </div>
 
-            {/* Summary Cards */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            {/* Monthly Performance */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <Card className="border-0 shadow-md bg-gradient-to-br from-blue-500 to-blue-600 text-white">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-blue-100">
@@ -63,7 +63,7 @@ export default async function DashboardPage({
                     <CardContent>
                         <div className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalBookings}</div>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Confirmed flights
+                            Confirmed flights in {formattedDate}
                         </p>
                     </CardContent>
                 </Card>
@@ -78,44 +78,50 @@ export default async function DashboardPage({
                     <CardContent>
                         <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">€{stats.totalProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                         <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
-                            Margin: {stats.averageMargin.toFixed(1)}%
+                            Margin: {stats.averageMargin.toFixed(1)}% ({formattedDate})
                         </p>
                     </CardContent>
                 </Card>
+            </div>
 
-                <Card className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                            Partner Net Balance
-                        </CardTitle>
-                        <Wallet className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className={`text-2xl font-bold ${portfolio.totalPartnerBalance < 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}`}>
-                            €{portfolio.totalPartnerBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Total issuing funds
-                        </p>
-                    </CardContent>
-                </Card>
+            {/* Financial Status (Global) */}
+            <div>
+                <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-4">Financial Status</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                    <Card className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                                Partner Net Balance
+                            </CardTitle>
+                            <Wallet className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className={`text-2xl font-bold ${portfolio.totalPartnerBalance < 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}`}>
+                                €{portfolio.totalPartnerBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Total funds currently held by partners
+                            </p>
+                        </CardContent>
+                    </Card>
 
-                <Card className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                            Agent Receivables
-                        </CardTitle>
-                        <CreditCard className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-red-500">
-                            €{portfolio.totalAgentDebt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Total agent debt
-                        </p>
-                    </CardContent>
-                </Card>
+                    <Card className="border-0 shadow-sm border-slate-200 dark:border-slate-800 dark:bg-slate-900">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                                Agent Receivables
+                            </CardTitle>
+                            <CreditCard className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-red-500">
+                                €{portfolio.totalAgentDebt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Total outstanding debt from agents
+                            </p>
+                        </CardContent>
+                    </Card>
+                </div>
             </div>
 
             {/* Agent Credits Section */}
@@ -135,7 +141,7 @@ export default async function DashboardPage({
                             <CardContent>
                                 <div className="text-2xl font-bold text-slate-900 dark:text-white">{agent.todayCount}</div>
                                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    Tickets issued today
+                                    Tickets issued in {formattedDate}
                                 </p>
                             </CardContent>
                         </Card>
