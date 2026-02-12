@@ -74,6 +74,7 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
         console.error('Error fetching analytics:', error)
         return {
             totalRevenue: 0,
+            totalCost: 0,
             totalBookings: 0,
             totalProfit: 0,
             revenueTrend: [],
