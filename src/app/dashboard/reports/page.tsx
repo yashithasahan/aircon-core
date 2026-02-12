@@ -73,10 +73,10 @@ export default async function ReportsPage({
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-                        Reports
+                        Export
                     </h1>
                     <p className="text-slate-500 dark:text-slate-400">
-                        Generate and export booking reports.
+                        Generate and export booking data.
                     </p>
                 </div>
                 <ExportButton filters={filters} />

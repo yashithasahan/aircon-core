@@ -53,9 +53,9 @@ export function ExportButton({ filters }: ExportButtonProps) {
 
             const worksheet = XLSX.utils.json_to_sheet(excelData)
             const workbook = XLSX.utils.book_new()
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Reports")
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Export")
 
-            const filename = `Report_${format(new Date(), "yyyy-MM-dd_HH-mm")}.xlsx`
+            const filename = `Export_${format(new Date(), "yyyy-MM-dd_HH-mm")}.xlsx`
             XLSX.writeFile(workbook, filename)
 
             toast.success("Report exported successfully")
