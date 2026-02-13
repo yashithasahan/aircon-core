@@ -129,8 +129,8 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
                                                     badgeColor = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400';
                                                     label = type === 'agent' ? 'PAYMENT' : 'TOP UP';
                                                 } else if (tx.transaction_type === 'BOOKING_DEDUCTION') {
-                                                    // Normal Booking -> Green (as per user request "green for normal")
-                                                    badgeColor = 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+                                                    // Booking -> Blue (as requested)
+                                                    badgeColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
                                                     label = 'BOOKING';
                                                 } else if (tx.transaction_type === 'REFUND') {
                                                     if (tx.description?.toLowerCase().includes('deletion')) {
@@ -189,8 +189,8 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
                                             </div>
                                         </TableCell>
                                         <TableCell className={`text-right font-mono font-medium ${Number(tx.amount) > 0
-                                                ? 'text-green-600 dark:text-green-400'
-                                                : 'text-red-600 dark:text-red-400'
+                                            ? 'text-green-600 dark:text-green-400'
+                                            : 'text-red-600 dark:text-red-400'
                                             }`}>
                                             {editingId === tx.id ? (
                                                 <Input
