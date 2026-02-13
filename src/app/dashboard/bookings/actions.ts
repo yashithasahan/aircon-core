@@ -463,7 +463,7 @@ export async function getBookings(filters: BookingFilters | string = {}) {
         dbQuery = dbQuery.range(from, to);
     }
 
-    const { data, error, count } = await dbQuery.order('created_at', { ascending: false })
+    const { data, error, count } = await dbQuery.order('entry_date', { ascending: false })
 
     if (error) {
         console.error('Fetch error in getBookings:', error)

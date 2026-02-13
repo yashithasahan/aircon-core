@@ -94,6 +94,62 @@ export function BookingsTab({ summary, bookings, passengers, agents, issuedPartn
                         </div>
                     </CardContent>
                 </Card>
+
+                {/* Bookings by Airline */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Bookings by Airline</CardTitle>
+                        <CardDescription>
+                            Distribution of bookings by Airline.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={summary.bookingsByAirline}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={60}
+                                        outerRadius={80}
+                                        fill="#82ca9d"
+                                        paddingAngle={5}
+                                        dataKey="value"
+                                    >
+                                        {summary.bookingsByAirline.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip />
+                                    <Legend />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Issuing Partner Distribution */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Issuing Partners</CardTitle>
+                        <CardDescription>
+                            Bookings distribution by Issuing Partner.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart layout="vertical" data={summary.bookingsByIssuedPartner}>
+                                    <XAxis type="number" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+                                    <YAxis dataKey="name" type="category" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} width={100} />
+                                    <Tooltip />
+                                    <Bar dataKey="value" fill="#82ca9d" radius={[0, 4, 4, 0]} name="Bookings" />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
 
             {/* Bookings List */}

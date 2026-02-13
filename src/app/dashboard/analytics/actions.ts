@@ -13,6 +13,7 @@ export type AnalyticsSummary = {
     bookingStatusDistribution: { name: string; value: number }[]
     bookingsByAirline: { name: string; value: number }[]
     bookingsByPlatform: { name: string; value: number }[]
+    bookingsByIssuedPartner: { name: string; value: number }[]
 }
 
 export type AgentPerformance = {
@@ -40,6 +41,7 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
         .from('bookings')
         .select('*')
         .eq('is_deleted', false)
+        .order('entry_date', { ascending: false })
 
     // Apply filters
     // Note: If no date range is provided, we might want to default to something (e.g., this month)
@@ -80,7 +82,8 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
             revenueTrend: [],
             bookingStatusDistribution: [],
             bookingsByAirline: [],
-            bookingsByPlatform: []
+            bookingsByPlatform: [],
+            bookingsByIssuedPartner: []
         }
     }
 
@@ -146,6 +149,24 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
     }, {} as Record<string, number>)
     const bookingsByPlatform = Object.entries(platformCounts).map(([name, value]) => ({ name, value: value as number }))
 
+    // F. Issued Partner Distribution
+    // We need partner names. Let's fetch them or assumes we have them.
+    // Ideally we should have fetched them with the bookings or separately.
+    // For performance, let's fetch them here since we are on the server.
+    const { data: partners } = await supabase.from('issued_partners').select('id, name')
+    const partnerNameMap = new Map(partners?.map(p => [p.id, p.name]) || [])
+
+    const partnerCounts = bookings.reduce((acc, b) => {
+        const partnerId = b.issued_partner_id
+        const partnerName = partnerNameMap.get(partnerId) || 'UNKNOWN'
+        acc[partnerName] = (acc[partnerName] || 0) + 1
+        return acc
+    }, {} as Record<string, number>)
+
+    const bookingsByIssuedPartner = Object.entries(partnerCounts)
+        .map(([name, value]) => ({ name, value: value as number }))
+        .sort((a, b) => b.value - a.value)
+
     return {
         totalRevenue,
         totalCost,
@@ -154,7 +175,8 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
         revenueTrend,
         bookingStatusDistribution,
         bookingsByAirline,
-        bookingsByPlatform
+        bookingsByPlatform,
+        bookingsByIssuedPartner
     }
 }
 
