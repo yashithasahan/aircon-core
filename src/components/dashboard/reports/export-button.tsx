@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Download, Loader2 } from "lucide-react"
 import { useState } from "react"
 import * as XLSX from "xlsx"
-import { getBookings, BookingFilters } from "@/app/dashboard/bookings/actions"
+import { getBookings, BookingFilters, getTicketReport } from "@/app/dashboard/bookings/actions"
 import { format } from "date-fns"
 import { toast } from "sonner"
 
@@ -25,10 +25,10 @@ export function ExportButton({ filters }: ExportButtonProps) {
             delete exportFilters.limit
 
             // We need to request a reasonable limit or modify server action to allow unlimited. 
-            // Current implementation of getBookings applies pagination only if page AND limit are present.
+            // getBookings/getTicketReport applies pagination only if page AND limit are present.
             // So if we delete them, it should return all.
 
-            const { data } = await getBookings(exportFilters)
+            const { data } = await getTicketReport(exportFilters)
 
             if (!data || data.length === 0) {
                 toast.error("No data to export")
@@ -36,26 +36,28 @@ export function ExportButton({ filters }: ExportButtonProps) {
             }
 
             // Transform data for Excel
-            const excelData = data.map((booking: any) => ({
-                "PNR": booking.pnr,
-                "Entry Date": booking.entry_date,
-                "Passenger": booking.pax_name,
-                "Airline": booking.airline,
-                "Ticket Number": booking.ticket_number,
-                "Status": booking.ticket_status,
-                "Platform": booking.platform,
-                "Issued Partner": booking.issued_partner?.name || '-',
-                "Agent": booking.agent?.name || '-',
-                "Fare": booking.fare,
-                "Selling Price": booking.selling_price,
-                "Profit": booking.profit
+            const excelData = data.map((ticket: any) => ({
+                "PNR": ticket.booking?.pnr,
+                "Entry Date": ticket.booking?.entry_date ? format(new Date(ticket.booking.entry_date), 'yyyy-MM-dd') : '',
+                "Passenger": `${ticket.title || ''} ${ticket.first_name || ''} ${ticket.surname || ''}`.trim(),
+                "Ticket Number": ticket.ticket_number,
+                "Status": ticket.ticket_status,
+                "Airline": ticket.booking?.airline,
+                "Route": ticket.booking?.origin && ticket.booking?.destination ? `${ticket.booking.origin} - ${ticket.booking.destination}` : '',
+                "Cost": Number(ticket.cost_price || 0),
+                "Selling Price": Number(ticket.sale_price || 0),
+                "Profit": (Number(ticket.sale_price || 0) - Number(ticket.cost_price || 0)),
+                "Platform": ticket.booking?.platform,
+                "Issued Partner": ticket.booking?.issued_partner?.name || '-',
+                "Agent": ticket.booking?.agent?.name || '-',
+                "Booking Source": ticket.booking?.booking_source
             }))
 
             const worksheet = XLSX.utils.json_to_sheet(excelData)
             const workbook = XLSX.utils.book_new()
             XLSX.utils.book_append_sheet(workbook, worksheet, "Export")
 
-            const filename = `Export_${format(new Date(), "yyyy-MM-dd_HH-mm")}.xlsx`
+            const filename = `Ticket_Export_${format(new Date(), "yyyy-MM-dd_HH-mm")}.xlsx`
             XLSX.writeFile(workbook, filename)
 
             toast.success("Report exported successfully")

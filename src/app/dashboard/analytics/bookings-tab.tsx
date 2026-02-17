@@ -3,30 +3,29 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { AnalyticsSummary } from "./actions"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts"
-import { BookingsTable } from "@/components/dashboard/bookings-table"
+import { ReportsTable } from "@/components/dashboard/reports/reports-table" // Changed import
 import { Agent, IssuedPartner, Platform, Passenger } from "@/types"
 
 interface BookingsTabProps {
     summary: AnalyticsSummary
-    bookings: any[]
-    passengers: Passenger[]
+    tickets: any[]
     agents: Agent[]
     issuedPartners: IssuedPartner[]
     platforms: Platform[]
 }
 
-export function BookingsTab({ summary, bookings, passengers, agents, issuedPartners, platforms }: BookingsTabProps) {
+export function BookingsTab({ summary, tickets, agents, issuedPartners, platforms }: BookingsTabProps) {
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
     return (
         <div className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2">
-                {/* Bookings Trend */}
+                {/* Ticket Sales Trend */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>Bookings Trend</CardTitle>
+                        <CardTitle>Ticket Sales Trend</CardTitle>
                         <CardDescription>
-                            Number of bookings per day for the selected period.
+                            Number of tickets sold per day for the selected period.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -54,7 +53,7 @@ export function BookingsTab({ summary, bookings, passengers, agents, issuedPartn
                                     <Tooltip
                                         labelFormatter={(label) => new Date(label).toLocaleDateString()}
                                     />
-                                    <Line type="monotone" dataKey="bookingsCount" stroke="#3b82f6" strokeWidth={2} name="Bookings" activeDot={{ r: 8 }} />
+                                    <Line type="monotone" dataKey="ticketsCount" stroke="#3b82f6" strokeWidth={2} name="Tickets" activeDot={{ r: 8 }} />
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
@@ -64,9 +63,9 @@ export function BookingsTab({ summary, bookings, passengers, agents, issuedPartn
                 {/* Platform Distribution */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>Bookings by Platform</CardTitle>
+                        <CardTitle>Tickets by Platform</CardTitle>
                         <CardDescription>
-                            Distribution of bookings across different sources.
+                            Distribution of tickets across different sources.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -95,12 +94,12 @@ export function BookingsTab({ summary, bookings, passengers, agents, issuedPartn
                     </CardContent>
                 </Card>
 
-                {/* Bookings by Airline */}
+                {/* Tickets by Airline */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>Bookings by Airline</CardTitle>
+                        <CardTitle>Tickets by Airline</CardTitle>
                         <CardDescription>
-                            Distribution of bookings by Airline.
+                            Distribution of tickets by Airline.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -132,9 +131,9 @@ export function BookingsTab({ summary, bookings, passengers, agents, issuedPartn
                 {/* Issuing Partner Distribution */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>Issuing Partners</CardTitle>
+                        <CardTitle>Tickets by Issuing Partner</CardTitle>
                         <CardDescription>
-                            Bookings distribution by Issuing Partner.
+                            Ticket distribution by Issuing Partner.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -144,7 +143,7 @@ export function BookingsTab({ summary, bookings, passengers, agents, issuedPartn
                                     <XAxis type="number" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
                                     <YAxis dataKey="name" type="category" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} width={100} />
                                     <Tooltip />
-                                    <Bar dataKey="value" fill="#82ca9d" radius={[0, 4, 4, 0]} name="Bookings" />
+                                    <Bar dataKey="value" fill="#82ca9d" radius={[0, 4, 4, 0]} name="Tickets" />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -152,23 +151,16 @@ export function BookingsTab({ summary, bookings, passengers, agents, issuedPartn
                 </Card>
             </div>
 
-            {/* Bookings List */}
+            {/* Tickets List */}
             <Card className="border-slate-200 dark:border-slate-800 shadow-sm mb-20">
                 <CardHeader>
-                    <CardTitle>Detailed Bookings</CardTitle>
+                    <CardTitle>Detailed Tickets</CardTitle>
                     <CardDescription>
-                        List of bookings matching the selected filters.
+                        List of tickets matching the selected filters.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <BookingsTable
-                        bookings={bookings}
-                        passengers={passengers}
-                        agents={agents}
-                        issuedPartners={issuedPartners}
-                        platforms={platforms}
-                        readOnly={true}
-                    />
+                    <ReportsTable tickets={tickets} />
                 </CardContent>
             </Card>
 
@@ -196,7 +188,7 @@ export function BookingsTab({ summary, bookings, passengers, agents, issuedPartn
                         </div>
                     </div>
                     <div className="text-muted-foreground text-xs">
-                        Based on {summary.totalBookings} records
+                        Based on {summary.totalTickets} tickets
                     </div>
                 </div>
             </div>

@@ -2,15 +2,14 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { BookingFilters } from '../bookings/actions'
-import { addDays, format, startOfMonth, endOfMonth, eachDayOfInterval, subMonths } from 'date-fns'
 
 export type AnalyticsSummary = {
     totalRevenue: number
     totalCost: number
-    totalBookings: number
+    totalTickets: number
     totalProfit: number
-    revenueTrend: { date: string; revenue: number; profit: number; bookingsCount: number }[]
-    bookingStatusDistribution: { name: string; value: number }[]
+    averageMargin: number
+    revenueTrend: { date: string; revenue: number; profit: number; ticketsCount: number }[]
     bookingsByAirline: { name: string; value: number }[]
     bookingsByPlatform: { name: string; value: number }[]
     bookingsByIssuedPartner: { name: string; value: number }[]
@@ -23,161 +22,171 @@ export type AgentPerformance = {
     totalRevenue: number
     totalDue: number
     totalPaid: number
+    totalProfit: number
 }
 
-// Helper to apply common filters
-const applyFilters = (query: any, filters: BookingFilters) => {
-    if (filters.startDate) query = query.gte('entry_date', filters.startDate)
-    if (filters.endDate) query = query.lte('entry_date', filters.endDate)
-    if (filters.agentId && filters.agentId !== 'ALL') query = query.eq('agent_id', filters.agentId)
-    // Add other filters as needed
-    return query
+export type IssuedPartnerPerformance = {
+    partnerId: string
+    partnerName: string
+    totalBookings: number
+    totalCost: number
+    currentBalance: number
+}
+
+export type EntityAnalytics = {
+    airlineDistribution: { name: string; value: number }[]
+    statusDistribution: { name: string; value: number }[]
+    monthlyTrend: { date: string; value: number }[]
 }
 
 export async function getAnalyticsSummary(filters: BookingFilters): Promise<AnalyticsSummary> {
     const supabase = await createClient()
 
-    let query = supabase
+    // Base query for Bookings (Financials)
+    let bookingQuery = supabase
         .from('bookings')
-        .select('*')
+        .select('selling_price, profit, fare, ticket_issued_date, platform, airline, issued_partner:issued_partners(name)')
         .eq('is_deleted', false)
-        .order('entry_date', { ascending: false })
 
-    // Apply filters
-    // Note: If no date range is provided, we might want to default to something (e.g., this month)
-    // or fetch everything. Let's assume filters are passed correctly or we fetch all relevant data.
-    // For specific charts, we might need stricter date handling.
+    // Base query for Tickets (Counts)
+    let ticketQuery = supabase
+        .from('booking_passengers')
+        .select(`
+            id,
+            booking:bookings!inner(
+                ticket_issued_date,
+                platform,
+                airline,
+                issued_partner:issued_partners(name),
+                ticket_status,
+                agent_id,
+                issued_partner_id,
+                is_deleted
+            )
+        `, { count: 'exact' })
 
-    if (filters.startDate) query = query.gte('entry_date', filters.startDate)
-    else {
-        // Default to last 30 days if no date? Or let the frontend handle defaults?
-        // Let's rely on frontend passing defaults, but if not, maybe 30 days back.
-        // const defaultStart = format(subMonths(new Date(), 1), 'yyyy-MM-dd')
-        // query = query.gte('entry_date', defaultStart)
-    }
+    // --- APPLY FILTERS ---
+    const { startDate, endDate, status, platform, airline, agentId, issuedPartnerId } = filters;
 
-    if (filters.endDate) query = query.lte('entry_date', filters.endDate)
-    if (filters.agentId && filters.agentId !== 'ALL') query = query.eq('agent_id', filters.agentId)
-    if (filters.platform && filters.platform !== 'ALL') query = query.eq('platform', filters.platform)
-    if (filters.status && filters.status !== 'ALL') query = query.eq('ticket_status', filters.status)
-    if (filters.issuedPartnerId && filters.issuedPartnerId !== 'ALL') query = query.eq('issued_partner_id', filters.issuedPartnerId)
-    if (filters.airline) query = query.ilike('airline', `%${filters.airline}%`)
-    if (filters.query) {
-        const sanitizedQuery = filters.query.replace(/,/g, ' ').trim();
-        if (sanitizedQuery) {
-            query = query.or(`pnr.ilike.%${sanitizedQuery}%,ticket_number.ilike.%${sanitizedQuery}%,pax_name.ilike.%${sanitizedQuery}%,airline.ilike.%${sanitizedQuery}%,ticket_status.ilike.%${sanitizedQuery}%`)
-        }
-    }
+    // Apply to Booking Query
+    if (startDate) bookingQuery = bookingQuery.gte('ticket_issued_date', startDate);
+    if (endDate) bookingQuery = bookingQuery.lte('ticket_issued_date', endDate);
+    if (status && status !== 'ALL') bookingQuery = bookingQuery.eq('ticket_status', status);
+    if (platform && platform !== 'ALL') bookingQuery = bookingQuery.eq('platform', platform);
+    if (airline) bookingQuery = bookingQuery.ilike('airline', `%${airline}%`);
+    if (agentId && agentId !== 'ALL') bookingQuery = bookingQuery.eq('agent_id', agentId);
+    if (issuedPartnerId && issuedPartnerId !== 'ALL') bookingQuery = bookingQuery.eq('issued_partner_id', issuedPartnerId);
 
+    // Apply to Ticket Query (Inner Join Filters)
+    if (startDate) ticketQuery = ticketQuery.gte('booking.ticket_issued_date', startDate);
+    if (endDate) ticketQuery = ticketQuery.lte('booking.ticket_issued_date', endDate);
+    if (status && status !== 'ALL') ticketQuery = ticketQuery.eq('booking.ticket_status', status);
+    if (platform && platform !== 'ALL') ticketQuery = ticketQuery.eq('booking.platform', platform);
+    if (airline) ticketQuery = ticketQuery.ilike('booking.airline', `%${airline}%`);
+    if (agentId && agentId !== 'ALL') ticketQuery = ticketQuery.eq('booking.agent_id', agentId);
+    if (issuedPartnerId && issuedPartnerId !== 'ALL') ticketQuery = ticketQuery.eq('booking.issued_partner_id', issuedPartnerId);
 
-    const { data: bookings, error } = await query
+    // Safety: exclude deleted bookings in ticket query too
+    ticketQuery = ticketQuery.filter('booking.is_deleted', 'eq', false);
 
-    if (error || !bookings) {
-        console.error('Error fetching analytics:', error)
+    // Execute Queries
+    const { data: bookings, error: bookingError } = await bookingQuery;
+    const { data: tickets, count: ticketCount, error: ticketError } = await ticketQuery;
+
+    if (bookingError || ticketError) {
+        console.error('Error fetching analytics:', bookingError, ticketError);
         return {
             totalRevenue: 0,
             totalCost: 0,
-            totalBookings: 0,
+            totalTickets: 0,
             totalProfit: 0,
+            averageMargin: 0,
             revenueTrend: [],
-            bookingStatusDistribution: [],
             bookingsByAirline: [],
             bookingsByPlatform: [],
             bookingsByIssuedPartner: []
-        }
+        };
     }
 
-    // A. Key Metrics
-    const totalBookings = bookings.length
-    // Assuming 'selling_price' is revenue and 'fare' is cost. Profit = Selling - Fare.
-    // Ensure we only sum up VALID bookings (e.g., ISSUED).
-    // Or do we include PENDING? usually Analytics shows "Potential" vs "Realized".
-    // For now, let's sum ISSUED for Revenue.
-    const issuedBookings = bookings.filter(b => b.ticket_status === 'ISSUED')
+    // --- AGGREGATION ---
 
-    const totalRevenue = issuedBookings.reduce((sum, b) => sum + (Number(b.selling_price) || 0), 0)
-    const totalCost = issuedBookings.reduce((sum, b) => sum + (Number(b.fare) || 0), 0)
-    const totalProfit = totalRevenue - totalCost
+    // 1. Financials (from Bookings)
+    // Only verify financial data from bookings
+    const totalRevenue = bookings?.reduce((sum, b) => sum + (Number(b.selling_price) || 0), 0) || 0;
+    const totalProfit = bookings?.reduce((sum, b) => sum + (Number(b.profit) || 0), 0) || 0;
+    const totalCost = bookings?.reduce((sum, b) => sum + (Number(b.fare) || 0), 0) || 0;
+    const averageMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
-    // B. Revenue Trend (Daily)
-    // Group by entry_date
-    const trendMap = new Map<string, { revenue: number, profit: number, bookingsCount: number }>()
+    // 2. Counts (from Tickets)
+    const totalTickets = ticketCount || 0;
 
-    issuedBookings.forEach(b => {
-        const date = b.entry_date // YYYY-MM-DD
-        if (!date) return
-        const existing = trendMap.get(date) || { revenue: 0, profit: 0, bookingsCount: 0 }
-        const revenue = Number(b.selling_price) || 0
-        const cost = Number(b.fare) || 0
-        trendMap.set(date, {
-            revenue: existing.revenue + revenue,
-            profit: existing.profit + (revenue - cost),
-            bookingsCount: existing.bookingsCount + 1
-        })
-    })
+    // 3. Trends & Distributions
+    const trendMap = new Map<string, { ticketsCount: number; revenue: number; profit: number }>();
 
-    // Sort by date
+    // Process Tickets for Count Trend
+    tickets?.forEach((t: any) => {
+        const date = t.booking?.ticket_issued_date ? t.booking.ticket_issued_date.split('T')[0] : 'Unknown';
+        if (!trendMap.has(date)) trendMap.set(date, { ticketsCount: 0, revenue: 0, profit: 0 });
+        trendMap.get(date)!.ticketsCount += 1;
+    });
+
+    // Process Bookings for Revenue Trend
+    bookings?.forEach(b => {
+        const date = b.ticket_issued_date ? b.ticket_issued_date.split('T')[0] : 'Unknown';
+        if (!trendMap.has(date)) trendMap.set(date, { ticketsCount: 0, revenue: 0, profit: 0 });
+        const revenue = Number(b.selling_price) || 0;
+        const profit = Number(b.profit) || 0;
+        trendMap.get(date)!.revenue += revenue;
+        trendMap.get(date)!.profit += profit;
+    });
+
     const revenueTrend = Array.from(trendMap.entries())
-        .map(([date, data]) => ({ date, ...data }))
-        .sort((a, b) => a.date.localeCompare(b.date))
+        .map(([date, stats]) => ({ date, ...stats }))
+        .sort((a, b) => a.date.localeCompare(b.date));
 
-    // C. Status Distribution
-    const statusCounts = bookings.reduce((acc, b) => {
-        const status = b.ticket_status || 'UNKNOWN'
-        acc[status] = (acc[status] || 0) + 1
-        return acc
-    }, {} as Record<string, number>)
+    // 4. Distributions
+    // By Platform (Count Tickets)
+    const platformMap = new Map<string, number>();
+    tickets?.forEach((t: any) => {
+        const p = t.booking?.platform || 'Unknown';
+        platformMap.set(p, (platformMap.get(p) || 0) + 1);
+    });
+    const bookingsByPlatform = Array.from(platformMap.entries())
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
 
-    const bookingStatusDistribution = Object.entries(statusCounts).map(([name, value]) => ({ name, value: value as number }))
+    // By Airline (Count Tickets)
+    const airlineMap = new Map<string, number>();
+    tickets?.forEach((t: any) => {
+        const a = t.booking?.airline || 'Unknown';
+        airlineMap.set(a, (airlineMap.get(a) || 0) + 1);
+    });
+    const bookingsByAirline = Array.from(airlineMap.entries())
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
 
-    // D. Airline Distribution
-    const airlineCounts = bookings.reduce((acc, b) => {
-        const airline = b.airline || 'UNKNOWN'
-        acc[airline] = (acc[airline] || 0) + 1
-        return acc
-    }, {} as Record<string, number>)
-    const bookingsByAirline = Object.entries(airlineCounts)
-        .map(([name, value]) => ({ name, value: value as number }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 5) // Top 5
-
-    // E. Platform Distribution
-    const platformCounts = bookings.reduce((acc, b) => {
-        const platform = b.platform || 'UNKNOWN'
-        acc[platform] = (acc[platform] || 0) + 1
-        return acc
-    }, {} as Record<string, number>)
-    const bookingsByPlatform = Object.entries(platformCounts).map(([name, value]) => ({ name, value: value as number }))
-
-    // F. Issued Partner Distribution
-    // We need partner names. Let's fetch them or assumes we have them.
-    // Ideally we should have fetched them with the bookings or separately.
-    // For performance, let's fetch them here since we are on the server.
-    const { data: partners } = await supabase.from('issued_partners').select('id, name')
-    const partnerNameMap = new Map(partners?.map(p => [p.id, p.name]) || [])
-
-    const partnerCounts = bookings.reduce((acc, b) => {
-        const partnerId = b.issued_partner_id
-        const partnerName = partnerNameMap.get(partnerId) || 'UNKNOWN'
-        acc[partnerName] = (acc[partnerName] || 0) + 1
-        return acc
-    }, {} as Record<string, number>)
-
-    const bookingsByIssuedPartner = Object.entries(partnerCounts)
-        .map(([name, value]) => ({ name, value: value as number }))
-        .sort((a, b) => b.value - a.value)
+    // By Issued Partner (Count Tickets)
+    const partnerMap = new Map<string, number>();
+    tickets?.forEach((t: any) => {
+        // Need to be careful with null safety
+        const p = t.booking?.issued_partner?.name || 'Unknown';
+        partnerMap.set(p, (partnerMap.get(p) || 0) + 1);
+    });
+    const bookingsByIssuedPartner = Array.from(partnerMap.entries())
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
 
     return {
         totalRevenue,
         totalCost,
-        totalBookings,
+        totalTickets,
         totalProfit,
+        averageMargin,
         revenueTrend,
-        bookingStatusDistribution,
         bookingsByAirline,
         bookingsByPlatform,
         bookingsByIssuedPartner
-    }
+    };
 }
 
 export async function getAgentPerformanceReport(filters: BookingFilters): Promise<AgentPerformance[]> {
@@ -196,7 +205,7 @@ export async function getAgentPerformanceReport(filters: BookingFilters): Promis
         .from('bookings')
         .select('*')
         .eq('is_deleted', false)
-        .eq('booking_source', 'AGENT')
+        // .eq('booking_source', 'AGENT') // booking_source is usually AGENT but can be others? 
         .not('agent_id', 'is', null)
 
     if (filters.startDate) query = query.gte('entry_date', filters.startDate)
@@ -209,9 +218,9 @@ export async function getAgentPerformanceReport(filters: BookingFilters): Promis
     // 3. Aggregate
     const agentMap = new Map<string, AgentPerformance>()
 
-    // Initialize all agents (even if no bookings in period)
+    // Initialize all agents
     agents.forEach(agent => {
-        // Only include specific agent if filter is active
+        // Filter by agentId if provided
         if (filters.agentId && filters.agentId !== 'ALL' && agent.id !== filters.agentId) return
 
         agentMap.set(agent.id, {
@@ -219,26 +228,235 @@ export async function getAgentPerformanceReport(filters: BookingFilters): Promis
             agentName: agent.name,
             totalBookings: 0,
             totalRevenue: 0,
-            totalDue: Number(agent.balance) || 0, // Balance is persistent debt, not just for period
-            totalPaid: 0 // We need transaction history for this?
+            totalDue: Number(agent.balance) || 0,
+            totalPaid: 0,
+            totalProfit: 0
         })
     })
-
-    // If "Paid" needs to be for the PERIOD, we need to fetch credit_transactions.
-    // For now, let's stick to "Total Due" which is their CURRENT balance (debt).
-    // And "Revenue" which is the generated sales in this period.
 
     bookings.forEach(b => {
         const agent = agentMap.get(b.agent_id)
         if (agent) {
-            agent.totalBookings += 1
+            agent.totalBookings += 1 // This is still bookings count, maybe okay for agent performance? Or should be tickets?
+            // Usually performance is financial, so revenue matters most.
             if (b.ticket_status === 'ISSUED') {
-                agent.totalRevenue += (Number(b.selling_price) || 0)
+                const revenue = Number(b.selling_price) || 0
+                const cost = Number(b.fare) || 0
+                agent.totalRevenue += revenue
+                agent.totalProfit += (revenue - cost)
             }
         }
     })
 
     return Array.from(agentMap.values())
-        .filter(a => a.totalBookings > 0 || (filters.agentId && filters.agentId !== 'ALL')) // Show active agents or selected
+        .filter(a => a.totalBookings > 0 || a.totalDue !== 0 || (filters.agentId && filters.agentId !== 'ALL'))
         .sort((a, b) => b.totalRevenue - a.totalRevenue)
+}
+
+export async function getIssuedPartnerPerformance(filters: BookingFilters): Promise<IssuedPartnerPerformance[]> {
+    const supabase = await createClient()
+
+    // 1. Fetch Partners
+    const { data: partners } = await supabase
+        .from('issued_partners')
+        .select('*')
+        .eq('is_deleted', false)
+
+    if (!partners) return []
+
+    // 2. Fetch Bookings for these partners
+    let query = supabase
+        .from('bookings')
+        .select('*')
+        .eq('is_deleted', false)
+        .not('issued_partner_id', 'is', null)
+
+    if (filters.startDate) query = query.gte('entry_date', filters.startDate)
+    if (filters.endDate) query = query.lte('entry_date', filters.endDate)
+    // Cost usually applies to ISSUED tickets
+    query = query.eq('ticket_status', 'ISSUED')
+
+    const { data: bookings } = await query
+
+    if (!bookings) return []
+
+    // 3. Aggregate
+    const partnerMap = new Map<string, IssuedPartnerPerformance>()
+
+    partners.forEach(p => {
+        if (filters.issuedPartnerId && filters.issuedPartnerId !== 'ALL' && p.id !== filters.issuedPartnerId) return
+
+        partnerMap.set(p.id, {
+            partnerId: p.id,
+            partnerName: p.name,
+            totalBookings: 0,
+            totalCost: 0,
+            currentBalance: Number(p.balance) || 0
+        })
+    })
+
+    bookings.forEach(b => {
+        const partner = partnerMap.get(b.issued_partner_id)
+        if (partner) {
+            partner.totalBookings += 1
+            partner.totalCost += (Number(b.fare) || 0)
+        }
+    })
+
+    return Array.from(partnerMap.values())
+        .filter(p => p.totalBookings > 0 || p.currentBalance !== 0 || (filters.issuedPartnerId && filters.issuedPartnerId !== 'ALL'))
+        .sort((a, b) => b.totalCost - a.totalCost)
+}
+
+export async function getEntityAnalytics(
+    id: string,
+    type: 'AGENT' | 'ISSUED_PARTNER',
+    filters: BookingFilters
+): Promise<EntityAnalytics> {
+    const supabase = await createClient()
+
+    let query = supabase
+        .from('bookings')
+        .select('airline, ticket_status, entry_date')
+        .eq('is_deleted', false)
+
+    if (type === 'AGENT') {
+        query = query.eq('agent_id', id)
+    } else {
+        query = query.eq('issued_partner_id', id)
+    }
+
+    if (filters.startDate) query = query.gte('entry_date', filters.startDate)
+    if (filters.endDate) query = query.lte('entry_date', filters.endDate)
+
+    const { data: bookings } = await query
+
+    if (!bookings) return { airlineDistribution: [], statusDistribution: [], monthlyTrend: [] }
+
+    // 1. Airline Distribution
+    const airlineCounts = bookings.reduce((acc, b) => {
+        const airline = b.airline || 'UNKNOWN'
+        acc[airline] = (acc[airline] || 0) + 1
+        return acc
+    }, {} as Record<string, number>)
+
+    const airlineDistribution = Object.entries(airlineCounts)
+        .map(([name, value]) => ({ name, value: value as number }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10)
+
+    // 2. Status Distribution
+    const statusCounts = bookings.reduce((acc, b) => {
+        const status = b.ticket_status || 'UNKNOWN'
+        acc[status] = (acc[status] || 0) + 1
+        return acc
+    }, {} as Record<string, number>)
+
+    const statusDistribution = Object.entries(statusCounts)
+        .map(([name, value]) => ({ name, value: value as number }))
+
+    // 3. Monthly Trend
+    const trendMap = new Map<string, number>()
+    bookings.forEach(b => {
+        const date = b.entry_date
+        if (date) {
+            trendMap.set(date, (trendMap.get(date) || 0) + 1)
+        }
+    })
+    const monthlyTrend = Array.from(trendMap.entries())
+        .map(([date, value]) => ({ date, value }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+
+    return {
+        airlineDistribution,
+        statusDistribution,
+        monthlyTrend
+    }
+}
+
+export interface PaymentReport {
+    moneyIn: number
+    moneyOut: number
+    netFlow: number
+    transactions: any[]
+}
+
+export async function getPaymentReport(filters: BookingFilters, entityType: 'AGENT' | 'ISSUED_PARTNER'): Promise<PaymentReport> {
+    const supabase = await createClient()
+
+    let query = supabase
+        .from('credit_transactions')
+        .select(`
+            *,
+            agent:agents(name),
+            issued_partner:issued_partners(name)
+        `)
+        .order('created_at', { ascending: false })
+
+    // Apply Date Filters
+    if (filters.startDate) query = query.gte('created_at', filters.startDate)
+    if (filters.endDate) query = query.lte('created_at', filters.endDate)
+
+    // Apply Entity Filters
+    if (entityType === 'AGENT') {
+        // Filter by Agent ID if provided, otherwise all agents
+        if (filters.agentId && filters.agentId !== 'ALL') {
+            query = query.eq('agent_id', filters.agentId)
+        } else {
+            query = query.not('agent_id', 'is', null)
+        }
+    } else {
+        // Filter by Issued Partner ID if provided, otherwise all partners
+        if (filters.issuedPartnerId && filters.issuedPartnerId !== 'ALL') {
+            query = query.eq('issued_partner_id', filters.issuedPartnerId)
+        } else {
+            query = query.not('issued_partner_id', 'is', null)
+        }
+    }
+
+    // Apply Transaction Type Filter
+    if (filters.transactionType && filters.transactionType !== 'ALL') {
+        query = query.eq('transaction_type', filters.transactionType)
+    }
+
+    const { data: transactions, error } = await query
+
+    if (error) {
+        console.error('Error fetching payment report:', error)
+        return { moneyIn: 0, moneyOut: 0, netFlow: 0, transactions: [] }
+    }
+
+    // Aggregate
+    let moneyIn = 0
+    let moneyOut = 0
+
+    transactions.forEach((tx: any) => {
+        const amount = Number(tx.amount) || 0
+
+        // For Agents:
+        // TOPUP = Payment FROM Agent (Money In)
+        // BOOKING_DEDUCTION = Usage (Money Out / Debt Increase)
+
+        // For Issued Partners:
+        // TOPUP = Payment TO Partner (Money Out from us? No, usually TopUp ADDS balance. So Money IN to *their* account)
+        // Wait, context of "Money In/Out" on dashboard.
+        // Usually "Money In" = Revenue/Cashflow IN. "Money Out" = Expenses.
+
+        // Let's stick to the requested "Top Ups" vs "Usage".
+        // TopUp = Money In (Balance Increase / Debt Decrease)
+        // Deduction = Money Out (Balance Decrease / Debt Increase)
+
+        if (tx.transaction_type === 'TOPUP' || tx.transaction_type === 'REFUND') {
+            moneyIn += amount
+        } else if (tx.transaction_type === 'BOOKING_DEDUCTION') {
+            moneyOut += amount
+        }
+    })
+
+    return {
+        moneyIn,
+        moneyOut,
+        netFlow: moneyIn - moneyOut,
+        transactions
+    }
 }

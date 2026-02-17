@@ -38,10 +38,19 @@ export function TopUpModal({ id, name, type, buttonLabel = "Top Up" }: TopUpModa
 
         setLoading(true)
         try {
-            // Convert datetime-local string to ISO if present
+            // Convert date string to ISO with CURRENT TIME if present
             let formattedDate = undefined;
             if (date) {
-                formattedDate = new Date(date).toISOString();
+                // date is YYYY-MM-DD
+                const now = new Date();
+                const [year, month, day] = date.split('-').map(Number);
+
+                // Set the selected date to the current time object
+                now.setFullYear(year);
+                now.setMonth(month - 1); // Month is 0-indexed
+                now.setDate(day);
+
+                formattedDate = now.toISOString();
             }
 
             await topUpCredit(id, type, Number(amount), `Manual ${buttonLabel} via Dashboard`, formattedDate)
@@ -92,7 +101,7 @@ export function TopUpModal({ id, name, type, buttonLabel = "Top Up" }: TopUpModa
                         </Label>
                         <Input
                             id="date"
-                            type="datetime-local"
+                            type="date"
                             value={date}
                             onChange={(e) => setDate(e.target.value)}
                             className="col-span-3"

@@ -23,14 +23,26 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Agent } from "@/types"
+import { IssuedPartner, Agent } from "@/types"
 import { Card, CardContent } from "@/components/ui/card"
 
 interface AnalyticsFiltersProps {
     agents: Agent[]
+    issuedPartners?: IssuedPartner[]
+    showAgentFilter?: boolean
+    showIssuedPartnerFilter?: boolean
+    showDate?: boolean
+    showTransactionTypeFilter?: boolean
 }
 
-export function AnalyticsFilters({ agents }: AnalyticsFiltersProps) {
+export function AnalyticsFilters({
+    agents,
+    issuedPartners = [],
+    showAgentFilter = true,
+    showIssuedPartnerFilter = true,
+    showDate = true,
+    showTransactionTypeFilter = false
+}: AnalyticsFiltersProps) {
     const router = useRouter()
     const pathname = usePathname()
     const searchParams = useSearchParams()
@@ -44,10 +56,14 @@ export function AnalyticsFilters({ agents }: AnalyticsFiltersProps) {
     }
     const [date, setDate] = React.useState<DateRange | undefined>(initialDate)
     const [agentId, setAgentId] = React.useState(searchParams.get("agentId") || "ALL")
+    const [issuedPartnerId, setIssuedPartnerId] = React.useState(searchParams.get("issuedPartnerId") || "ALL")
+    const [transactionType, setTransactionType] = React.useState(searchParams.get("transactionType") || "ALL")
 
     // Update local state when URL params change
     React.useEffect(() => {
         setAgentId(searchParams.get("agentId") || "ALL")
+        setIssuedPartnerId(searchParams.get("issuedPartnerId") || "ALL")
+        setTransactionType(searchParams.get("transactionType") || "ALL")
         setDate({
             from: searchParams.get("from") ? new Date(searchParams.get("from")!) : undefined,
             to: searchParams.get("to") ? new Date(searchParams.get("to")!) : undefined,
@@ -55,21 +71,37 @@ export function AnalyticsFilters({ agents }: AnalyticsFiltersProps) {
     }, [searchParams])
 
     const activeFilterCount = [
-        agentId !== "ALL",
-        date?.from
+        showAgentFilter && agentId !== "ALL",
+        showIssuedPartnerFilter && issuedPartnerId !== "ALL",
+        showDate && date?.from,
+        showTransactionTypeFilter && transactionType !== "ALL"
     ].filter(Boolean).length
 
     const handleApply = () => {
         const params = new URLSearchParams(searchParams.toString())
 
-        if (agentId && agentId !== "ALL") params.set("agentId", agentId)
-        else params.delete("agentId")
+        if (showAgentFilter) {
+            if (agentId && agentId !== "ALL") params.set("agentId", agentId)
+            else params.delete("agentId")
+        }
 
-        if (date?.from) params.set("from", format(date.from, "yyyy-MM-dd"))
-        else params.delete("from")
+        if (showIssuedPartnerFilter) {
+            if (issuedPartnerId && issuedPartnerId !== "ALL") params.set("issuedPartnerId", issuedPartnerId)
+            else params.delete("issuedPartnerId")
+        }
 
-        if (date?.to) params.set("to", format(date.to, "yyyy-MM-dd"))
-        else params.delete("to")
+        if (showTransactionTypeFilter) {
+            if (transactionType && transactionType !== "ALL") params.set("transactionType", transactionType)
+            else params.delete("transactionType")
+        }
+
+        if (showDate) {
+            if (date?.from) params.set("from", format(date.from, "yyyy-MM-dd"))
+            else params.delete("from")
+
+            if (date?.to) params.set("to", format(date.to, "yyyy-MM-dd"))
+            else params.delete("to")
+        }
 
         router.push(`${pathname}?${params.toString()}`)
         setIsOpen(false)
@@ -77,10 +109,14 @@ export function AnalyticsFilters({ agents }: AnalyticsFiltersProps) {
 
     const handleReset = () => {
         setAgentId("ALL")
+        setIssuedPartnerId("ALL")
+        setTransactionType("ALL")
         setDate(undefined)
 
         const params = new URLSearchParams(searchParams.toString())
         params.delete("agentId")
+        params.delete("issuedPartnerId")
+        params.delete("transactionType")
         params.delete("from")
         params.delete("to")
 
@@ -111,62 +147,102 @@ export function AnalyticsFilters({ agents }: AnalyticsFiltersProps) {
                     <CardContent className="grid gap-6 p-6">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {/* Agent */}
-                            <div className="space-y-2">
-                                <Label>Agent</Label>
-                                <Select value={agentId} onValueChange={setAgentId}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="All Agents" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="ALL">All Agents</SelectItem>
-                                        {agents.map(a => (
-                                            <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                            {showAgentFilter && (
+                                <div className="space-y-2">
+                                    <Label>Agent</Label>
+                                    <Select value={agentId} onValueChange={setAgentId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="All Agents" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ALL">All Agents</SelectItem>
+                                            {agents.map(a => (
+                                                <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+
+                            {/* Issued Partner */}
+                            {showIssuedPartnerFilter && (
+                                <div className="space-y-2">
+                                    <Label>Issued Partner</Label>
+                                    <Select value={issuedPartnerId} onValueChange={setIssuedPartnerId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="All Partners" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ALL">All Partners</SelectItem>
+                                            {issuedPartners.map(p => (
+                                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+
+                            {/* Transaction Type */}
+                            {showTransactionTypeFilter && (
+                                <div className="space-y-2">
+                                    <Label>Transaction Type</Label>
+                                    <Select value={transactionType} onValueChange={setTransactionType}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="All Types" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ALL">All Types</SelectItem>
+                                            <SelectItem value="TOPUP">Topup</SelectItem>
+                                            <SelectItem value="BOOKING_DEDUCTION">Booking</SelectItem>
+                                            <SelectItem value="REFUND">Refund</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
 
                             {/* Date Range */}
-                            <div className="space-y-2">
-                                <Label>Date Range</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            id="date"
-                                            variant={"outline"}
-                                            className={cn(
-                                                "w-full justify-start text-left font-normal",
-                                                !date && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {date?.from ? (
-                                                date.to ? (
-                                                    <>
-                                                        {format(date.from, "LLL dd, y")} -{" "}
-                                                        {format(date.to, "LLL dd, y")}
-                                                    </>
+                            {showDate && (
+                                <div className="space-y-2">
+                                    <Label>Date Range</Label>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                id="date"
+                                                variant={"outline"}
+                                                className={cn(
+                                                    "w-full justify-start text-left font-normal",
+                                                    !date && "text-muted-foreground"
+                                                )}
+                                            >
+                                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                                {date?.from ? (
+                                                    date.to ? (
+                                                        <>
+                                                            {format(date.from, "LLL dd, y")} -{" "}
+                                                            {format(date.to, "LLL dd, y")}
+                                                        </>
+                                                    ) : (
+                                                        format(date.from, "LLL dd, y")
+                                                    )
                                                 ) : (
-                                                    format(date.from, "LLL dd, y")
-                                                )
-                                            ) : (
-                                                <span>Pick a date range</span>
-                                            )}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                        <Calendar
-                                            initialFocus
-                                            mode="range"
-                                            defaultMonth={date?.from}
-                                            selected={date}
-                                            onSelect={setDate}
-                                            numberOfMonths={2}
-                                            pagedNavigation
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                            </div>
+                                                    <span>Pick a date range</span>
+                                                )}
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                            <Calendar
+                                                initialFocus
+                                                mode="range"
+                                                defaultMonth={date?.from}
+                                                selected={date}
+                                                onSelect={setDate}
+                                                numberOfMonths={2}
+                                                pagedNavigation
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">

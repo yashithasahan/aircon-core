@@ -77,7 +77,11 @@ export async function getAgentsWithBalance() {
     return data
 }
 
-export async function getTransactions(id: string, entityType: 'issued_partner' | 'agent') {
+export async function getTransactions(
+    id: string,
+    entityType: 'issued_partner' | 'agent',
+    transactionType?: string
+) {
     const supabase = await createClient()
 
     let query = supabase
@@ -90,6 +94,10 @@ export async function getTransactions(id: string, entityType: 'issued_partner' |
         query = query.eq('issued_partner_id', id)
     } else {
         query = query.eq('agent_id', id)
+    }
+
+    if (transactionType && transactionType !== 'ALL') {
+        query = query.eq('transaction_type', transactionType)
     }
 
     const { data, error } = await query

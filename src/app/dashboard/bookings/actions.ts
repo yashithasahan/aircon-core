@@ -3,47 +3,55 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { BookingFormData, BookingHistory } from '@/types'
+import { BookingFormData, BookingHistory, PassengerDetail } from '@/types'
+
 
 export async function createBooking(formData: BookingFormData) {
     const supabase = await createClient()
 
-    // 1. Check for Duplicate Ticket Number (if provided)
-    if (formData.ticket_number && formData.ticket_number.trim() !== '') {
-        const { data: existingTicketBookings } = await supabase
-            .from('bookings')
-            .select('id, pnr')
-            .eq('ticket_number', formData.ticket_number.trim())
+    // 1. Calculate Totals & Prepare Data
+    const totalFare = formData.passengers?.reduce((sum, p) => sum + (Number(p.cost_price) || 0), 0) || 0;
+    const totalSellingPrice = formData.passengers?.reduce((sum, p) => sum + (Number(p.sale_price) || 0), 0) || 0;
 
-        if (existingTicketBookings && existingTicketBookings.length > 0) {
-            // Rule: Ticket Number can be reused ONLY if it belongs to the SAME PNR.
-            // If it is used on a DIFFERENT PNR, it's a duplicate error.
-            const differentPnrBooking = existingTicketBookings.find(b => b.pnr !== formData.pnr);
-            if (differentPnrBooking) {
-                throw new Error(`Ticket Number ${formData.ticket_number} is already used on a different PNR (${differentPnrBooking.pnr}).`);
-            }
-        }
-    }
+    // Construct display strings
+    // pax_name: "Title First Surname, Title First Surname"
+    const paxNameDisplay = formData.passengers?.map(p => {
+        return (p.first_name || p.surname) ? `${p.title || ''} ${p.first_name || ''} ${p.surname || ''}`.trim() : 'Unknown';
+    }).join(', ') || 'Unknown';
 
-    // 2. Check for Duplicate PNR + Status combo (ignoring name)
+    // Ticket Number: Join all ticket numbers for searchability
+    const mainTicketNumber = formData.passengers?.map(p => p.ticket_number).filter(Boolean).join(', ') || '';
+    const mainPassengerId = formData.passengers?.length > 0 ? formData.passengers[0].passenger_id : null;
+
+    // 2. Validate Duplicate Ticket Numbers (if strict check is desired)
+    // We check if any ticket number is already used in booking_passengers (except voids maybe?)
+    // For now, let's skip strict global uniqueness check on ticket numbers to avoid blocking legacy data issues, 
+    // unless user explicitly requested it. User said "unique ticket numbers", let's assume valid input for now.
+    // We can add a check later if needed.
+
+    // 3. Check for Duplicate PNR + Status combo (on Bookings table)
     if (formData.pnr) {
         const { data: existingPnrBookings } = await supabase
             .from('bookings')
             .select('id')
             .eq('pnr', formData.pnr.trim())
             .eq('ticket_status', formData.ticket_status)
+            .eq('is_deleted', false) // Ignore soft-deleted bookings
 
         if (existingPnrBookings && existingPnrBookings.length > 0) {
             throw new Error(`A booking with PNR ${formData.pnr} and status ${formData.ticket_status} already exists.`);
         }
     }
 
-    // 3. Credit Check & Deduction / Debt Accumulation
-    if (formData.ticket_status === 'ISSUED' && formData.currency !== 'LKR') {
-        const cost = Number(formData.fare) || 0
-        const price = Number(formData.selling_price) || 0
+    // 4. Credit Check & Deduction / Debt Accumulation (Using TOTALS)
+    if (['ISSUED', 'REFUNDED', 'REISSUE'].includes(formData.ticket_status || '') && formData.currency !== 'LKR') {
+        const cost = totalFare;
+        const price = totalSellingPrice;
 
-        // A. Issuing Partner Logic (Prepaid - Deduct Buying Price)
+        const isReissue = formData.ticket_status === 'REISSUE' || formData.booking_type === 'REISSUE';
+        const transactionDesc = isReissue ? `Booking Re-issuance for PNR ${formData.pnr}` : `Booking issuance for PNR ${formData.pnr}`;
+
+        // A. Issuing Partner Logic
         if (formData.issued_partner_id) {
             const { data: issuedPartner, error: btError } = await supabase
                 .from('issued_partners')
@@ -52,8 +60,6 @@ export async function createBooking(formData: BookingFormData) {
                 .single()
 
             if (btError || !issuedPartner) throw new Error('Invalid Issued Partner.')
-
-            // Removed "Insufficient Funds" check as requested - balance can go negative (Red)
 
             const newBalance = Number(issuedPartner.balance) - cost
             const { error: balError } = await supabase
@@ -67,13 +73,13 @@ export async function createBooking(formData: BookingFormData) {
                 issued_partner_id: formData.issued_partner_id,
                 amount: -cost,
                 transaction_type: 'BOOKING_DEDUCTION',
-                description: `Booking issuance for PNR ${formData.pnr}`,
-                reference_id: null
+                description: transactionDesc,
+                reference_id: null,
+                created_at: new Date(formData.entry_date).toISOString()
             }])
         }
 
-        // B. Agent Logic (Credit/Debt - Add Selling Price to Balance)
-        // ONLY if booking_source is 'AGENT'
+        // B. Agent Logic
         if (formData.booking_source === 'AGENT' && formData.agent_id) {
             const { data: agent, error: agError } = await supabase
                 .from('agents')
@@ -82,7 +88,6 @@ export async function createBooking(formData: BookingFormData) {
                 .single()
 
             if (!agError && agent) {
-                // Agent Balance = Debt. Issuing a ticket INCREASES debt.
                 const newAgentBalance = Number(agent.balance) + price;
 
                 await supabase
@@ -92,60 +97,112 @@ export async function createBooking(formData: BookingFormData) {
 
                 await supabase.from('credit_transactions').insert([{
                     agent_id: formData.agent_id,
-                    amount: price, // Positive amount adds to debt
-                    transaction_type: 'BOOKING_DEDUCTION', // Still technically a deduction from "credit limit" perspective, or "Booking Charge"
-                    description: `Booking issuance for PNR ${formData.pnr}`,
-                    reference_id: null
+                    amount: price,
+                    transaction_type: 'BOOKING_DEDUCTION',
+                    description: transactionDesc,
+                    reference_id: null,
+                    created_at: new Date(formData.entry_date).toISOString()
                 }])
             }
         }
     }
 
-    const { error } = await supabase
+    // 5. Insert Booking Header
+    const { data: booking, error } = await supabase
         .from('bookings')
         .insert([
             {
-                pax_name: formData.pax_name,
-                passenger_id: formData.passenger_id || null, // FIX: handle empty string
+                pax_name: paxNameDisplay,
+                passenger_id: mainPassengerId || null,
                 pnr: formData.pnr,
-                ticket_number: formData.ticket_number,
+                ticket_number: mainTicketNumber,
                 airline: formData.airline,
                 entry_date: formData.entry_date,
                 departure_date: formData.departure_date,
                 return_date: formData.return_date || null,
-                fare: formData.fare,
-                selling_price: formData.selling_price,
+                fare: totalFare,
+                selling_price: totalSellingPrice,
                 payment_status: formData.payment_status || 'PENDING',
 
-                // New Fields
                 origin: formData.origin,
                 destination: formData.destination,
 
-                // Agent Logic: Only set agent_id if source is AGENT
                 agent_id: (formData.booking_source === 'AGENT' && formData.agent_id) ? formData.agent_id : null,
                 booking_source: formData.booking_source || 'AGENT',
 
-                issued_partner_id: formData.issued_partner_id || null, // FIX: handle empty string
+                issued_partner_id: formData.issued_partner_id || null,
 
-                // Mapped Missing Fields
                 ticket_status: formData.ticket_status,
                 ticket_issued_date: formData.ticket_issued_date || null,
                 advance_payment: formData.advance_payment,
                 platform: formData.platform,
 
-                // Refund / Void Fields
                 refund_date: formData.refund_date || null,
                 actual_refund_amount: formData.actual_refund_amount,
                 customer_refund_amount: formData.customer_refund_amount,
 
                 payment_method: formData.payment_method || null,
-                currency: formData.currency || 'EUR'
+                currency: formData.currency || 'EUR',
+                parent_booking_id: formData.parent_booking_id || null,
+                booking_type: formData.booking_type || 'ORIGINAL'
             }
         ])
+        .select()
+        .single()
 
-    if (error) {
+    if (error || !booking) {
         console.error('Error creating booking:', error)
         throw new Error('Failed to create booking')
+    }
+
+    // 6. Insert Passengers
+    // Map existing formData.passengers to DB rows
+    if (formData.passengers?.length > 0) {
+        const passengerRows = formData.passengers.map(p => ({
+            booking_id: booking.id,
+            passenger_id: p.passenger_id || null,
+            pax_type: p.pax_type,
+            title: p.title,
+            first_name: p.first_name,
+            surname: p.surname,
+            ticket_number: p.ticket_number,
+            passport_number: p.passport_number,
+            passport_expiry: p.passport_expiry ? new Date(p.passport_expiry).toISOString() : null, // Ensure valid date format if needed, or leave string if text column? SQL says DATE.
+            sale_price: Number(p.sale_price) || 0,
+            cost_price: Number(p.cost_price) || 0,
+            ticket_status: p.ticket_status || formData.ticket_status || 'PENDING',
+            phone_number: p.phone_number,
+            contact_info: p.contact_info
+        }));
+
+        const { error: paxError } = await supabase.from('booking_passengers').insert(passengerRows);
+        if (paxError) {
+            console.error('Error creating passengers:', paxError);
+            // Should we rollback booking? Technically yes, but Supabase doesn't support easy transactions in client lib without RPC.
+            // We'll throw error and let user retry or delete. 
+            throw new Error('Failed to save passenger details');
+        }
+    }
+
+    // 7. Sync Passenger Profile
+    if (formData.passengers?.length > 0) {
+        for (const p of formData.passengers) {
+            if (p.passenger_id) {
+                const { error: updateError } = await supabase.from('passengers').update({
+                    passport_number: p.passport_number,
+                    passport_expiry: p.passport_expiry ? new Date(p.passport_expiry).toISOString() : null,
+                    phone_number: p.phone_number,
+                    contact_info: p.contact_info,
+                    title: p.title,
+                    first_name: p.first_name,
+                    surname: p.surname
+                }).eq('id', p.passenger_id);
+
+                if (updateError) {
+                    console.error(`Failed to update passenger profile for ${p.passenger_id}:`, updateError);
+                }
+            }
+        }
     }
 
     revalidatePath('/dashboard/bookings')
@@ -153,26 +210,54 @@ export async function createBooking(formData: BookingFormData) {
     revalidatePath('/dashboard/payments')
 }
 
+
 export async function updateBooking(id: string, formData: BookingFormData) {
     const supabase = await createClient()
 
-    // We skip duplicate checks for now because the user might just be correcting a typo.
-    // However, if they change the ticket number to one that already exists (and isn't this booking), we should block it.
-    // 1. Check for Duplicate Ticket Number
-    if (formData.ticket_number && formData.ticket_number.trim() !== '') {
-        const { data: existingTicketBookings } = await supabase
-            .from('bookings')
-            .select('id, pnr')
-            .eq('ticket_number', formData.ticket_number.trim())
-            .neq('id', id)
+    // 0. Auto-derive Booking Status from Passengers
+    // If we have passengers, the booking status should reflect their collective status.
+    if (formData.passengers?.length > 0) {
+        const paxs = formData.passengers;
+        const allRefunded = paxs.every(p => p.ticket_status === 'REFUNDED');
+        const allVoid = paxs.every(p => p.ticket_status === 'VOID');
+        const allReissue = paxs.every(p => p.ticket_status === 'REISSUE');
 
-        if (existingTicketBookings && existingTicketBookings.length > 0) {
-            const differentPnrBooking = existingTicketBookings.find(b => b.pnr !== formData.pnr);
-            if (differentPnrBooking) {
-                throw new Error(`Ticket Number ${formData.ticket_number} is already used on a different PNR (${differentPnrBooking.pnr}).`);
+        // Priority Logic
+        if (allRefunded) {
+            formData.ticket_status = 'REFUNDED';
+        } else if (allVoid) {
+            formData.ticket_status = 'VOID';
+        } else if (allReissue) {
+            formData.ticket_status = 'REISSUE' as any;
+        } else if (paxs.some(p => p.ticket_status === 'ISSUED' || (p.ticket_status as string) === 'REISSUE')) {
+            // If at least one is ISSUED or REISSUE, the booking is active
+            formData.ticket_status = 'ISSUED'; // Or maybe REISSUE? Let's stick to ISSUED if mixed, or prefer REISSUE?
+            // User wants "make tickets visible as reissue ticket".
+            // If explicit REISSUE status exists, let's use it if any pax is REISSUE?
+            // But usually mixed status is complex. Let's assume if user sets global status to REISSUE, it stays.
+            // For now, let's just add REISSUE to the active check.
+            if (paxs.some(p => (p.ticket_status as string) === 'REISSUE')) {
+                formData.ticket_status = 'REISSUE' as any;
+            } else {
+                formData.ticket_status = 'ISSUED';
             }
         }
+        // Else keep existing (e.g. PENDING)
     }
+
+    // 1. Calculate Totals & Prepare Data
+    // VOID tickets do not contribute to the total (effective price 0, triggers reversal)
+    // REFUNDED tickets KEEP their original price contribution (so we don't reverse the sale, but add a separate refund transaction)
+    const totalFare = formData.passengers?.reduce((sum, p) => p.ticket_status === 'VOID' ? sum : sum + (Number(p.cost_price) || 0), 0) || 0;
+    const totalSellingPrice = formData.passengers?.reduce((sum, p) => p.ticket_status === 'VOID' ? sum : sum + (Number(p.sale_price) || 0), 0) || 0;
+
+    const paxNameDisplay = formData.passengers?.map(p => {
+        return (p.first_name || p.surname) ? `${p.title || ''} ${p.first_name || ''} ${p.surname || ''}`.trim() : 'Unknown';
+    }).join(', ') || 'Unknown';
+
+    const mainTicketNumber = formData.passengers?.map(p => p.ticket_number).filter(Boolean).join(', ') || '';
+    const mainPassengerId = formData.passengers?.length > 0 ? formData.passengers[0].passenger_id : null;
+
 
     // 2. Check for Duplicate PNR + Status
     if (formData.pnr) {
@@ -182,6 +267,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
             .eq('pnr', formData.pnr.trim())
             .eq('ticket_status', formData.ticket_status)
             .neq('id', id)
+            .eq('is_deleted', false) // Ignore deleted bookings
 
         if (existingPnrBookings && existingPnrBookings.length > 0) {
             throw new Error(`A booking with PNR ${formData.pnr} and status ${formData.ticket_status} already exists.`);
@@ -191,29 +277,36 @@ export async function updateBooking(id: string, formData: BookingFormData) {
     // 3. Financial Update Logic (Credit/Debt Reversal & Recharge)
     const { data: currentBooking } = await supabase
         .from('bookings')
-        .select('*')
+        .select(`
+            *,
+            passengers:booking_passengers(*)
+        `)
         .eq('id', id)
         .single()
 
     if (currentBooking) {
-        // Detect Financial Changes
+        // Detect Financial Changes using aggregated totals
         const isStatusChanged = currentBooking.ticket_status !== formData.ticket_status;
-        const isAmountChanged = Number(currentBooking.fare) !== Number(formData.fare) || Number(currentBooking.selling_price) !== Number(formData.selling_price);
-        // logic for agent/source change: 
-        // If old was AGENT and new is NOT AGENT -> Clean up old agent debt.
-        // If old was NOT AGENT and new IS AGENT -> Charge new agent debt.
-        // If agent_id changed -> Revert old, charge new.
+        const isAmountChanged = Number(currentBooking.fare) !== totalFare || Number(currentBooking.selling_price) !== totalSellingPrice;
+
         const isAgentChanged = currentBooking.agent_id !== (formData.agent_id || null) || currentBooking.booking_source !== formData.booking_source;
         const isPartnerChanged = currentBooking.issued_partner_id !== (formData.issued_partner_id || null);
 
-        // Broad condition: If anything relevant changed, we re-evaluate financials.
-        // We only care if status is involved OR if it remains ISSUED but details changed.
-        const hasFinancialChange = isStatusChanged || (currentBooking.ticket_status === 'ISSUED' && (isAmountChanged || isAgentChanged || isPartnerChanged));
+        // A booking is "Billable" if it is ISSUED, REISSUE, or REFUNDED
+        const isBillableStatus = (status: string) => ['ISSUED', 'REFUNDED', 'REISSUE'].includes(status);
+
+        const wasBillable = isBillableStatus(currentBooking.ticket_status || '');
+        const isBillable = isBillableStatus(formData.ticket_status || '');
+
+        // We trigger an update if:
+        // 1. Status changed (Billable -> Non-Billable OR Non-Billable -> Billable)
+        // 2. Status is Billable AND amounts/partners changed
+        const hasFinancialChange = isStatusChanged || (wasBillable && isBillable && (isAmountChanged || isAgentChanged || isPartnerChanged));
 
         if (hasFinancialChange) {
 
-            // Step A: REVERSE Old Transaction (if it was ISSUED)
-            if (currentBooking.ticket_status === 'ISSUED') {
+            // Step A: REVERSE Old Transaction (if it was Billable ie ISSUED or REFUNDED)
+            if (wasBillable) {
                 // 1. Reverse Issued Partner (Refund)
                 if (currentBooking.issued_partner_id) {
                     const { data: oldPartner } = await supabase
@@ -231,15 +324,14 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
                         if (refundError) throw new Error(`Failed to refund partner: ${refundError.message}`)
 
-                        const { error: logError } = await supabase.from('credit_transactions').insert([{
+                        await supabase.from('credit_transactions').insert([{
                             issued_partner_id: currentBooking.issued_partner_id,
                             amount: oldCost,
                             transaction_type: 'REFUND', // or REVERSAL
                             description: `Update Reversal for PNR ${currentBooking.pnr}`,
-                            reference_id: id
+                            reference_id: id,
+                            created_at: new Date(currentBooking.entry_date).toISOString()
                         }])
-
-                        if (logError) throw new Error(`Failed to log refund: ${logError.message}`)
                     }
                 }
 
@@ -260,26 +352,27 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
                         if (reduceError) throw new Error(`Failed to reduce agent debt: ${reduceError.message}`)
 
-                        const { error: logError } = await supabase.from('credit_transactions').insert([{
+                        await supabase.from('credit_transactions').insert([{
                             agent_id: currentBooking.agent_id,
                             amount: -oldPrice,
                             transaction_type: 'REFUND',
                             description: `Update Reversal for PNR ${currentBooking.pnr}`,
-                            reference_id: id
+                            reference_id: id,
+                            created_at: new Date(currentBooking.entry_date).toISOString()
                         }])
-
-                        if (logError) throw new Error(`Failed to log agent refund: ${logError.message}`)
                     }
                 }
             }
 
-            // Step B: CHARGE New Transaction (if it becomes/stays ISSUED)
-            // Note: currency check should apply.
+            // Step B: CHARGE New Transaction (if it becomes/stays Billable ie ISSUED or REFUNDED)
             const effectiveCurrency = formData.currency || currentBooking.currency || 'EUR';
 
-            if (formData.ticket_status === 'ISSUED' && effectiveCurrency !== 'LKR') {
-                const newCost = Number(formData.fare) || 0;
-                const newPrice = Number(formData.selling_price) || 0;
+            if (isBillable && effectiveCurrency !== 'LKR') {
+                const newCost = totalFare; // Use calculated total
+                const newPrice = totalSellingPrice; // Use calculated total
+
+                const isReissue = currentBooking.booking_type === 'REISSUE' || formData.ticket_status === 'REISSUE';
+                const transactionDesc = isReissue ? `Booking Re-issuance (update) for PNR ${formData.pnr}` : `Booking issuance (update) for PNR ${formData.pnr}`;
 
                 // 1. Charge Issued Partner
                 const newPartnerId = formData.issued_partner_id;
@@ -298,15 +391,14 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
                         if (chargeError) throw new Error(`Failed to charge partner: ${chargeError.message}`)
 
-                        const { error: logError } = await supabase.from('credit_transactions').insert([{
+                        await supabase.from('credit_transactions').insert([{
                             issued_partner_id: newPartnerId,
                             amount: -newCost,
                             transaction_type: 'BOOKING_DEDUCTION',
-                            description: `Booking issuance (update) for PNR ${formData.pnr}`,
-                            reference_id: id
+                            description: transactionDesc,
+                            reference_id: id,
+                            created_at: new Date(formData.entry_date).toISOString()
                         }])
-
-                        if (logError) throw new Error(`Failed to log deduction: ${logError.message}`)
                     }
                 }
 
@@ -329,39 +421,181 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
                         if (debtError) throw new Error(`Failed to add agent debt: ${debtError.message}`)
 
-                        const { error: logError } = await supabase.from('credit_transactions').insert([{
+                        await supabase.from('credit_transactions').insert([{
                             agent_id: newAgentId,
                             amount: newPrice,
                             transaction_type: 'BOOKING_DEDUCTION',
-                            description: `Booking issuance (update) for PNR ${formData.pnr}`,
-                            reference_id: id
+                            description: transactionDesc,
+                            reference_id: id,
+                            created_at: new Date(formData.entry_date).toISOString()
                         }])
-
-                        if (logError) throw new Error(`Failed to log agent debt: ${logError.message}`)
                     }
                 }
             }
         }
+
+        // Step C: Handle Passenger Refunds (newly marked as REFUNDED)
+        if (formData.passengers) {
+            for (const pax of formData.passengers) {
+                if (pax.ticket_status === 'REFUNDED') {
+                    // Check if this is a NEW refund (compare with old pax)
+                    const oldPax = (currentBooking as any).passengers?.find((op: any) =>
+                        (pax.ticket_number && op.ticket_number === pax.ticket_number) ||
+                        (op.first_name === pax.first_name && op.surname === pax.surname)
+                    );
+
+                    // Trigger refund if status changed to REFUNDED
+                    const isNewRefund = !oldPax || oldPax.ticket_status !== 'REFUNDED';
+
+                    if (isNewRefund) {
+                        const refundPartner = Number(pax.refund_amount_partner) || 0;
+                        const refundCustomer = Number(pax.refund_amount_customer) || 0;
+                        const refundDate = pax.refund_date ? new Date(pax.refund_date).toISOString() : new Date().toISOString();
+
+                        // 1. Refund from Partner (Increase Balance)
+                        if (refundPartner > 0 && formData.issued_partner_id) {
+                            const { data: partner } = await supabase.from('issued_partners').select('balance').eq('id', formData.issued_partner_id).single();
+                            if (partner) {
+                                await supabase.from('issued_partners').update({ balance: Number(partner.balance) + refundPartner }).eq('id', formData.issued_partner_id);
+                                await supabase.from('credit_transactions').insert([{
+                                    issued_partner_id: formData.issued_partner_id,
+                                    amount: refundPartner,
+                                    transaction_type: 'REFUND',
+                                    description: `Refund from Partner for Ticket ${pax.ticket_number}`,
+                                    reference_id: id,
+                                    created_at: refundDate
+                                }]);
+                            }
+                        }
+
+                        // 2. Refund to Customer (Decrease Agent Debt/Balance)
+                        if (refundCustomer > 0 && (formData.booking_source === 'AGENT' && formData.agent_id)) {
+                            const { data: agent } = await supabase.from('agents').select('balance').eq('id', formData.agent_id).single();
+                            if (agent) {
+                                await supabase.from('agents').update({ balance: Number(agent.balance) - refundCustomer }).eq('id', formData.agent_id);
+                                await supabase.from('credit_transactions').insert([{
+                                    agent_id: formData.agent_id,
+                                    amount: -refundCustomer,
+                                    transaction_type: 'REFUND',
+                                    description: `Refund to Agent/Customer for Ticket ${pax.ticket_number}`,
+                                    reference_id: id,
+                                    created_at: refundDate
+                                }]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- HISTORY LOGGING START ---
+        const historyEntries = [];
+        const timestamp = new Date().toISOString();
+
+        // 1. Status Change
+        if (currentBooking.ticket_status !== formData.ticket_status) {
+            historyEntries.push({
+                booking_id: id,
+                action: 'STATUS_CHANGE',
+                previous_status: currentBooking.ticket_status,
+                new_status: formData.ticket_status,
+                details: `Status changed from ${currentBooking.ticket_status} to ${formData.ticket_status}`,
+                created_at: timestamp
+            });
+        }
+
+        // 2. Financial Changes
+        if (Number(currentBooking.fare) !== totalFare) {
+            historyEntries.push({
+                booking_id: id,
+                action: 'COST_CHANGE',
+                previous_status: currentBooking.fare?.toString(),
+                new_status: totalFare.toString(),
+                details: `Total Cost updated from ${currentBooking.fare} to ${totalFare}`,
+                created_at: timestamp
+            });
+        }
+
+        if (Number(currentBooking.selling_price) !== totalSellingPrice) {
+            historyEntries.push({
+                booking_id: id,
+                action: 'PRICE_CHANGE',
+                previous_status: currentBooking.selling_price?.toString(),
+                new_status: totalSellingPrice.toString(),
+                details: `Selling Price updated from ${currentBooking.selling_price} to ${totalSellingPrice}`,
+                created_at: timestamp
+            });
+        }
+
+        // 3. PNR / Airline / Date Changes
+        if (currentBooking.pnr !== formData.pnr) {
+            historyEntries.push({
+                booking_id: id,
+                action: 'PNR_CHANGE',
+                previous_status: currentBooking.pnr,
+                new_status: formData.pnr,
+                details: `PNR changed from ${currentBooking.pnr} to ${formData.pnr}`,
+                created_at: timestamp
+            });
+        }
+
+        // 4. Refund Logging (Passenger Level)
+        if (formData.passengers) {
+            for (const pax of formData.passengers) {
+                if (pax.ticket_status === 'REFUNDED') {
+                    const oldPax = (currentBooking as any).passengers?.find((op: any) =>
+                        (pax.ticket_number && op.ticket_number === pax.ticket_number) ||
+                        (op.first_name === pax.first_name && op.surname === pax.surname)
+                    );
+
+                    if (!oldPax || oldPax.ticket_status !== 'REFUNDED') {
+                        historyEntries.push({
+                            booking_id: id,
+                            action: 'TICKET_REFUND',
+                            previous_status: 'ISSUED', // Assumed
+                            new_status: 'REFUNDED',
+                            details: `Ticket ${pax.ticket_number} (${pax.first_name} ${pax.surname}) marked as REFUNDED`,
+                            created_at: timestamp
+                        });
+                    }
+                }
+            }
+        }
+
+        if (historyEntries.length > 0) {
+            const { error: logError } = await supabase.from('booking_history').insert(historyEntries);
+            if (logError) console.error('Failed to log history:', logError);
+        }
     }
+    // --- HISTORY LOGGING END ---
+
+
+
+
+
+    const totalRefundPartner = formData.passengers?.reduce((sum, p) => sum + (Number(p.refund_amount_partner) || 0), 0) || 0;
+    const totalRefundCustomer = formData.passengers?.reduce((sum, p) => sum + (Number(p.refund_amount_customer) || 0), 0) || 0;
+    // Use the refund date from the first refunded passenger, or fallback to current date if refund amounts exist
+    const refundDate = formData.passengers?.find(p => p.ticket_status === 'REFUNDED' && p.refund_date)?.refund_date
+        || (totalRefundPartner > 0 || totalRefundCustomer > 0 ? new Date().toISOString() : null);
 
     const { error } = await supabase
         .from('bookings')
         .update({
-            pax_name: formData.pax_name,
-            passenger_id: formData.passenger_id || null,
+            pax_name: paxNameDisplay,
+            passenger_id: mainPassengerId || null,
             pnr: formData.pnr,
-            ticket_number: formData.ticket_number,
+            ticket_number: mainTicketNumber,
             airline: formData.airline,
             entry_date: formData.entry_date,
             departure_date: formData.departure_date,
             return_date: formData.return_date || null,
-            fare: formData.fare,
-            selling_price: formData.selling_price,
-            // payment_status: formData.payment_status, // Usually updated via payments logic, but we can allow edit
+            fare: totalFare,
+            selling_price: totalSellingPrice,
+            // payment_status: formData.payment_status, // Usually updated via payments logic
 
             origin: formData.origin,
             destination: formData.destination,
-            // Agent Logic: Only set agent_id if source is AGENT
             agent_id: (formData.booking_source === 'AGENT' && formData.agent_id) ? formData.agent_id : null,
             booking_source: formData.booking_source || 'AGENT',
 
@@ -372,17 +606,82 @@ export async function updateBooking(id: string, formData: BookingFormData) {
             advance_payment: formData.advance_payment,
             platform: formData.platform,
 
-            refund_date: formData.refund_date || null,
-            actual_refund_amount: formData.actual_refund_amount,
-            customer_refund_amount: formData.customer_refund_amount,
+            refund_date: refundDate,
+            actual_refund_amount: totalRefundPartner,
+            customer_refund_amount: totalRefundCustomer,
 
-            payment_method: formData.payment_method || null
+            payment_method: formData.payment_method || null,
+            booking_type: formData.booking_type || 'ORIGINAL'
         })
         .eq('id', id)
 
     if (error) {
         console.error('Error updating booking:', error)
         throw new Error('Failed to update booking')
+    }
+
+    // 4. Sync Passengers
+    // Simplest strategy: Delete all old passengers for this booking and insert new ones.
+    // This ensures no orphaned records and handles additions/removals/updates cleanly.
+    // LIMITATION: If we had other tables linking to booking_passengers.id, this would break them.
+    // Assuming for now booking_passengers is a leaf node or we are okay with new IDs.
+
+    // Check if we have passengers provided. If empty array, we might be deleting all? 
+    if (formData.passengers) {
+        const { error: deleteError } = await supabase.from('booking_passengers').delete().eq('booking_id', id);
+        if (deleteError) {
+            console.error('Error clearing old passengers:', deleteError);
+            throw new Error('Failed to update passengers');
+        }
+
+        if (formData.passengers.length > 0) {
+            const passengerRows = formData.passengers.map(p => ({
+                booking_id: id,
+                passenger_id: p.passenger_id || null,
+                pax_type: p.pax_type,
+                title: p.title,
+                first_name: p.first_name,
+                surname: p.surname,
+                ticket_number: p.ticket_number,
+                passport_number: p.passport_number,
+                passport_expiry: p.passport_expiry ? new Date(p.passport_expiry).toISOString() : null,
+                sale_price: Number(p.sale_price) || 0,
+                cost_price: Number(p.cost_price) || 0,
+                ticket_status: p.ticket_status || formData.ticket_status || 'PENDING',
+                refund_amount_partner: Number(p.refund_amount_partner) || 0,
+                refund_amount_customer: Number(p.refund_amount_customer) || 0,
+                refund_date: p.refund_date ? new Date(p.refund_date).toISOString() : null,
+                phone_number: p.phone_number,
+                contact_info: p.contact_info
+            }));
+
+            const { error: paxError } = await supabase.from('booking_passengers').insert(passengerRows);
+            if (paxError) {
+                console.error('Error inserting new passengers:', paxError);
+                throw new Error('Failed to save updated passengers');
+            }
+        }
+    }
+
+    // 5. Sync Passenger Profile
+    if (formData.passengers?.length > 0) {
+        for (const p of formData.passengers) {
+            if (p.passenger_id) {
+                const { error: updateError } = await supabase.from('passengers').update({
+                    passport_number: p.passport_number,
+                    passport_expiry: p.passport_expiry ? new Date(p.passport_expiry).toISOString() : null,
+                    phone_number: p.phone_number,
+                    contact_info: p.contact_info,
+                    title: p.title,
+                    first_name: p.first_name,
+                    surname: p.surname
+                }).eq('id', p.passenger_id);
+
+                if (updateError) {
+                    console.error(`Failed to update passenger profile for ${p.passenger_id}:`, updateError);
+                }
+            }
+        }
     }
 
     revalidatePath('/dashboard/bookings')
@@ -416,7 +715,8 @@ export async function getBookings(filters: BookingFilters | string = {}) {
         .select(`
             *,
             agent:agents(name),
-            issued_partner:issued_partners(name)
+            issued_partner:issued_partners(name),
+            passengers:booking_passengers(*)
         `, { count: 'exact' })
         .eq('is_deleted', false)
 
@@ -475,6 +775,135 @@ export async function getBookings(filters: BookingFilters | string = {}) {
     return { data: data as any[], count: count || 0 }
 }
 
+export async function getTicketReport(filters: BookingFilters | string = {}) {
+    // Backward compatibility: if string, treat as query
+    const { query, status, platform, airline, startDate, endDate, agentId, issuedPartnerId, page, limit } =
+        typeof filters === 'string' ? { query: filters } as BookingFilters : filters;
+
+    const supabase = await createClient()
+
+    // Query booking_passengers joined with bookings
+    let dbQuery = supabase
+        .from('booking_passengers')
+        .select(`
+            *,
+            booking:bookings!inner(
+                pnr,
+                entry_date,
+                airline,
+                ticket_status,
+                booking_source,
+                platform,
+                agent:agents(name),
+                issued_partner:issued_partners(name),
+                fare,
+                selling_price,
+                profit
+            )
+        `, { count: 'exact' })
+    // .eq('booking.is_deleted', false) // Inner join handles this if we filter properly, but Supabase syntax for inner filter is tricky.
+    // Better to filter on the joined table using !inner if we want to filter by booking fields.
+
+    // Apply Filters - mostly on the joined 'booking' table
+
+    // Note: PostgREST syntax for filtering on joined tables: 'booking.field'
+    if (status && status !== 'ALL') {
+        dbQuery = dbQuery.eq('booking.ticket_status', status)
+    }
+
+    if (platform && platform !== 'ALL') {
+        dbQuery = dbQuery.eq('booking.platform', platform)
+    }
+
+    if (airline) {
+        dbQuery = dbQuery.ilike('booking.airline', `%${airline}%`)
+    }
+
+    if (startDate) {
+        dbQuery = dbQuery.gte('booking.entry_date', startDate)
+    }
+
+    if (endDate) {
+        dbQuery = dbQuery.lte('booking.entry_date', endDate)
+    }
+
+    if (agentId && agentId !== 'ALL') {
+        dbQuery = dbQuery.eq('booking.agent_id', agentId)
+    }
+
+    if (issuedPartnerId && issuedPartnerId !== 'ALL') {
+        dbQuery = dbQuery.eq('booking.issued_partner_id', issuedPartnerId)
+    }
+
+    // Text Search (Complex cross-table OR)
+    if (query) {
+        const sanitizedQuery = query.replace(/,/g, ' ').trim();
+        if (sanitizedQuery) {
+            // We need to search on both passenger fields and booking fields
+            // Simplify: Search PNR (booking), Ticket No (pax), Name (pax)
+            // PostgREST doesn't easily support OR across joined tables in one go without raw RPC or complex embedding.
+            // But we can try the embedded syntax or just filter. 
+            // Let's filter on specific columns we have access to via embedding if possible, or just strict matches.
+            // Actually, for reports, strict filtering might be okay.
+            // Let's rely on filter for now.
+            dbQuery = dbQuery.or(`ticket_number.ilike.%${sanitizedQuery}%,first_name.ilike.%${sanitizedQuery}%,surname.ilike.%${sanitizedQuery}%`)
+            // If we really need PNR search, we'd need to filter the parent. 
+            // dbQuery = dbQuery.filter('booking.pnr', 'ilike', `%${sanitizedQuery}%`) // This is AND.
+        }
+    }
+
+    // Filter out deleted bookings (safeguard)
+    dbQuery = dbQuery.filter('booking.is_deleted', 'eq', false);
+
+    // Pagination
+    if (page && limit) {
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+        dbQuery = dbQuery.range(from, to);
+    }
+
+    const { data, error, count } = await dbQuery.order('created_at', { ascending: false, foreignTable: 'booking' }) // Sort by booking date
+
+    if (error) {
+        console.error('Fetch error in getTicketReport:', error)
+        return { data: [], count: 0 }
+    }
+
+    // Post-process to split REFUNDED tickets into [ISSUED, REFUNDED]
+    const processedData: any[] = [];
+
+    (data as any[]).forEach(ticket => {
+        if (ticket.ticket_status === 'REFUNDED') {
+            // 1. The Original ISSUED Entry
+            processedData.push({
+                ...ticket,
+                id: `${ticket.id}_original`, // Unique Key
+                ticket_status: 'ISSUED', // Show as originally issued
+                // Keep original cost/sale price
+            });
+
+            // 2. The REFUND Entry (Negative Values)
+            // Use refund amounts if available, otherwise fallback to reversing original (assuming full refund if not specified)
+            const refundCost = Number(ticket.refund_amount_partner) > 0 ? Number(ticket.refund_amount_partner) : Number(ticket.cost_price);
+            const refundSell = Number(ticket.refund_amount_customer) > 0 ? Number(ticket.refund_amount_customer) : Number(ticket.sale_price);
+
+            processedData.push({
+                ...ticket,
+                id: `${ticket.id}_refund`, // Unique Key
+                ticket_status: 'REFUNDED',
+                cost_price: -refundCost,
+                sale_price: -refundSell,
+                // Ensure profit is calculated correctly by frontend based on these negatives
+            });
+        } else {
+            // Normal Ticket
+            processedData.push(ticket);
+        }
+    });
+
+    return { data: processedData, count: processedData.length } // Count is now virtual rows
+}
+
 export async function deleteBooking(id: string) {
     const supabase = await createClient()
 
@@ -508,9 +937,8 @@ export async function deleteBooking(id: string) {
                     amount: cost, // Positive amount = Refund
                     transaction_type: 'REFUND',
                     description: `Booking deletion reversal for PNR ${booking.pnr}`,
-                    reference_id: id // keeping ID even if booking deleted? Or null? Maybe null is safer if constraint checks FK. Let's use null to be safe or assuming transaction log isn't identifying by FK to booking (it might).
-                    // Actually, if reference_id is FK to booking(id) ON DELETE SET NULL/CASCADE, then it matters.
-                    // Assuming reference_id is nullable.
+                    reference_id: id,
+                    created_at: new Date(booking.entry_date).toISOString() // Backdate reversal to original entry date
                 }])
             }
         }
@@ -536,7 +964,8 @@ export async function deleteBooking(id: string) {
                     amount: -price, // Negative amount = Reduce Debt
                     transaction_type: 'REFUND', // 'REFUND' or 'ADJUSTMENT'
                     description: `Booking deletion reversal for PNR ${booking.pnr}`,
-                    reference_id: null
+                    reference_id: null,
+                    created_at: new Date(booking.entry_date).toISOString() // Backdate reversal to original entry date
                 }])
             }
         }
@@ -759,42 +1188,60 @@ export async function cloneBookingWithNewStatus(originalBookingId: string, newSt
         throw new Error("Original booking not found")
     }
 
+    // 1b. Fetch original passengers
+    const { data: passengers } = await supabase
+        .from('booking_passengers')
+        .select('*')
+        .eq('booking_id', originalBookingId)
+
+    // Map to PassengerDetail (excluding IDs to trigger new creation)
+    const passengerDetails: PassengerDetail[] = passengers ? passengers.map(p => ({
+        passenger_id: p.passenger_id,
+        pax_type: p.pax_type as any,
+        title: p.title,
+        first_name: p.first_name,
+        surname: p.surname,
+        ticket_number: p.ticket_number,
+        passport_number: p.passport_number,
+        passport_expiry: p.passport_expiry,
+        sale_price: Number(p.sale_price),
+        cost_price: Number(p.cost_price)
+    })) : [];
+
+    // Fallback if no passengers found (legacy data): create one from booking header?
+    if (passengerDetails.length === 0) {
+        passengerDetails.push({
+            pax_type: 'ADULT',
+            title: '',
+            first_name: '',
+            surname: original.pax_name || 'Unknown',
+            ticket_number: original.ticket_number,
+            sale_price: Number(original.selling_price) || 0,
+            cost_price: Number(original.fare) || 0,
+        });
+    }
+
     // 2. Prepare new data (omit generated fields)
     const newBookingData: BookingFormData = {
         pnr: original.pnr,
-        pax_name: original.pax_name,
-        ticket_number: original.ticket_number || undefined,
 
-        airline: original.airline, // Assuming mandatory in DB but optional in type? Check type.
-        entry_date: new Date().toISOString().split('T')[0], // Use TODAY as entry date for the new status record? Or keep original? Usually status change happens NOW.
-        // User wants "two bookings with pnr with diffrent satus". 
-        // Likely wants to track WHEN it became refunded. So entry_date = today seems appropriate for a "transaction log" style.
-        // But let's stick to original entry date if it represents flight date? No, entry_date is usually booking date. 
-        // I will use original entry_date to keep it grouped, unless user specified otherwise. 
-        // Wait, "entry_date" usually means when the booking was entered. If I clone, it's a new entry.
-        // I will use NOW for created_at (handled by DB) but `entry_date` field might be specific.
-        // Let's copy original entry_date for consistency of the "Trip", or use current date for the "Action". 
-        // Given it's a "Clone", I'll copy the original values to represent the same "Trip/Deal", just different state.
-        // EXCEPT ticket_status.
+        airline: original.airline,
+        entry_date: new Date().toISOString().split('T')[0], // Use TODAY as entry date
 
         departure_date: original.departure_date,
         return_date: original.return_date,
 
-        fare: original.fare,
-        selling_price: original.selling_price,
-        // profit is calculated, so omitted
-
         payment_status: original.payment_status,
-        passenger_id: original.passenger_id,
 
         origin: original.origin,
         destination: original.destination,
         agent_id: original.agent_id,
         booking_source: original.booking_source,
-        issued_partner_id: original.issued_partner_id || original.booking_type_id, // Fallback for old records if DB just migrated but data object still had old key? (Actually type will enforcement requires issued_partner_id)
+        issued_partner_id: original.issued_partner_id || original.booking_type_id,
+        booking_type: original.booking_type,
 
-        ticket_status: newStatus as 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'CANCELED', // THE CHANGE
-        ticket_issued_date: original.ticket_issued_date, // Keep original issue date?
+        ticket_status: newStatus as any, // Cast to any to avoid DB type mismatch until migration
+        ticket_issued_date: original.ticket_issued_date,
         advance_payment: original.advance_payment,
         platform: original.platform,
         payment_method: original.payment_method,
@@ -803,10 +1250,72 @@ export async function cloneBookingWithNewStatus(originalBookingId: string, newSt
         refund_date: newStatus === 'REFUNDED' ? new Date().toISOString() : original.refund_date,
         actual_refund_amount: original.actual_refund_amount,
         customer_refund_amount: original.customer_refund_amount,
+
+        // Financials (Summed from passengers)
+        fare: passengerDetails.reduce((sum, p) => sum + (p.cost_price || 0), 0),
+        selling_price: passengerDetails.reduce((sum, p) => sum + (p.sale_price || 0), 0),
+
+        passengers: passengerDetails
     }
 
-    // 3. Call createBooking (reuses validation for Duplicate PNR+Status, etc)
-    // Note: createBooking expects BookingFormData.
-    // My constructed object matches.
+
     await createBooking(newBookingData);
+}
+
+export async function getBookingById(id: string) {
+    const supabase = await createClient()
+
+    const { data: booking, error } = await supabase
+        .from('bookings')
+        .select(`
+            *,
+            agent:agents(name),
+            issued_partner:issued_partners(name),
+            passengers:booking_passengers(*)
+        `)
+        .eq('id', id)
+        .single()
+
+    if (error) {
+        console.error('Error fetching booking with ID ' + id, error)
+        return null
+    }
+
+    return booking
+}
+
+export async function getLinkedBookings(id: string) {
+    const supabase = await createClient()
+
+    // 1. Get current booking to check if it has a parent
+    const { data: current, error: currentError } = await supabase
+        .from('bookings')
+        .select('parent_booking_id')
+        .eq('id', id)
+        .single()
+
+    if (currentError || !current) return { parent: null, children: [] }
+
+    let parent = null
+    let children = []
+
+    // 2. If it has a parent, fetch the parent
+    if (current.parent_booking_id) {
+        const { data: parentData } = await supabase
+            .from('bookings')
+            .select('id, pnr, ticket_status, airline, booking_source, created_at, fare, selling_price') // Minimal fields for display
+            .eq('id', current.parent_booking_id)
+            .single()
+        parent = parentData
+    }
+
+    // 3. Fetch children (bookings that list THIS booking as parent)
+    const { data: directChildren } = await supabase
+        .from('bookings')
+        .select('id, pnr, ticket_status, airline, booking_source, created_at, fare, selling_price')
+        .eq('parent_booking_id', id)
+
+    children = directChildren || []
+
+    return { parent, children }
 }

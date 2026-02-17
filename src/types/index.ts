@@ -38,7 +38,9 @@ export interface Booking {
     passenger_id?: string; // FK
 
     // New fields
-    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'CANCELED';
+    parent_booking_id?: string; // For Reissues/Splits
+    booking_type?: 'ORIGINAL' | 'REISSUE';
+    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'REISSUE';
     ticket_issued_date?: string;
     advance_payment?: number;
     platform?: string;
@@ -62,6 +64,7 @@ export interface Booking {
 
     // New
     booking_source?: 'WALK_IN' | 'FINDYOURFARES' | 'AGENT';
+    passengers?: PassengerDetail[];
 }
 
 export interface Passenger {
@@ -75,12 +78,40 @@ export interface Passenger {
     name: string; // Computed or legacy, kept for compatibility
 
     passport_number?: string;
+    passport_expiry?: string;
     contact_info?: string;
     phone_number?: string;
+    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'REISSUE';
     passenger_type?: 'ADULT' | 'CHILD' | 'INFANT';
 }
 
-export type BookingFormData = Omit<Booking, "id" | "created_at" | "profit" | "agent" | "issued_partner">;
+export interface PassengerDetail {
+    id?: string; // If syncing with booking_passengers table
+    passenger_id?: string; // Link to passengers table
+    pax_type: 'ADULT' | 'CHILD' | 'INFANT';
+    title: string;
+    first_name: string;
+    surname: string;
+    ticket_number?: string;
+    passport_number?: string;
+    passport_expiry?: string;
+    sale_price: number;
+
+    cost_price: number;
+    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'REISSUE';
+    refund_amount_partner?: number;
+    refund_amount_customer?: number;
+    refund_date?: string;
+    phone_number?: string;
+    contact_info?: string;
+}
+
+export type BookingFormData = Omit<Booking, "id" | "created_at" | "profit" | "agent" | "issued_partner" | "ticket_number" | "passenger_id" | "pax_name"> & {
+    pax_name?: string; // Optional legacy or derived
+    passenger_id?: string; // Optional legacy
+    ticket_number?: string; // Optional legacy helper
+    passengers: PassengerDetail[];
+};
 
 export interface BookingHistory {
     id: string;

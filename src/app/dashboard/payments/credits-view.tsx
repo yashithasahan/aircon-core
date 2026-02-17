@@ -33,8 +33,8 @@ export function BalanceCardsView({ items, type, buttonLabel = "Top Up" }: Balanc
                                     <div className="mt-0">
                                         <div className="text-sm font-medium text-slate-500 dark:text-slate-400">Current Balance</div>
                                         {type === 'agent' ? (
-                                            <div className="text-3xl font-bold text-red-500">
-                                                -€{Number(item.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            <div className={`text-3xl font-bold ${Number(item.balance) < 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                {Number(item.balance) < 0 ? '+' : '-'}€{Math.abs(Number(item.balance)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </div>
                                         ) : (
                                             <div className={`text-3xl font-bold ${Number(item.balance) < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
