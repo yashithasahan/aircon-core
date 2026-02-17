@@ -12,6 +12,13 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -39,17 +46,18 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editAmount, setEditAmount] = useState<string>("")
     const [updating, setUpdating] = useState(false)
+    const [transactionType, setTransactionType] = useState("ALL")
 
     useEffect(() => {
         if (open) {
             fetchTransactions()
         }
-    }, [open])
+    }, [open, transactionType])
 
     async function fetchTransactions() {
         setLoading(true)
         try {
-            const data = await getTransactions(id, type)
+            const data = await getTransactions(id, type, transactionType)
             setTransactions(data || [])
         } catch (error) {
             toast.error("Failed to load transactions")
@@ -92,8 +100,21 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
                 {children || <Button variant="ghost" size="sm">History</Button>}
             </DialogTrigger>
             <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
+                <DialogHeader className="flex flex-row items-center justify-between space-y-0">
                     <DialogTitle>{name} - Transaction History</DialogTitle>
+                    <div className="w-[180px] mr-8">
+                        <Select value={transactionType} onValueChange={setTransactionType}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="All Types" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="ALL">All Types</SelectItem>
+                                <SelectItem value="TOPUP">Topup</SelectItem>
+                                <SelectItem value="BOOKING_DEDUCTION">Booking</SelectItem>
+                                <SelectItem value="REFUND">Refund</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
                 </DialogHeader>
 
                 <div className="mt-4">
@@ -129,8 +150,8 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
                                                     badgeColor = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400';
                                                     label = type === 'agent' ? 'PAYMENT' : 'TOP UP';
                                                 } else if (tx.transaction_type === 'BOOKING_DEDUCTION') {
-                                                    // Normal Booking -> Green (as per user request "green for normal")
-                                                    badgeColor = 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+                                                    // Booking -> Blue (as requested)
+                                                    badgeColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
                                                     label = 'BOOKING';
                                                 } else if (tx.transaction_type === 'REFUND') {
                                                     if (tx.description?.toLowerCase().includes('deletion')) {
@@ -189,8 +210,8 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
                                             </div>
                                         </TableCell>
                                         <TableCell className={`text-right font-mono font-medium ${Number(tx.amount) > 0
-                                                ? 'text-green-600 dark:text-green-400'
-                                                : 'text-red-600 dark:text-red-400'
+                                            ? 'text-green-600 dark:text-green-400'
+                                            : 'text-red-600 dark:text-red-400'
                                             }`}>
                                             {editingId === tx.id ? (
                                                 <Input
