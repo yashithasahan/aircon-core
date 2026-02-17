@@ -3,16 +3,19 @@
 import { createClient } from '@/utils/supabase/server'
 import { BookingFilters } from '../bookings/actions'
 
+// Type Definition Update
 export type AnalyticsSummary = {
     totalRevenue: number
     totalCost: number
     totalTickets: number
+    totalBookings: number
     totalProfit: number
     averageMargin: number
     revenueTrend: { date: string; revenue: number; profit: number; ticketsCount: number }[]
     bookingsByAirline: { name: string; value: number }[]
     bookingsByPlatform: { name: string; value: number }[]
     bookingsByIssuedPartner: { name: string; value: number }[]
+    bookingStatusDistribution: { name: string; value: number }[]
 }
 
 export type AgentPerformance = {
@@ -45,7 +48,7 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
     // Base query for Bookings (Financials)
     let bookingQuery = supabase
         .from('bookings')
-        .select('selling_price, profit, fare, ticket_issued_date, platform, airline, issued_partner:issued_partners(name)')
+        .select('selling_price, profit, fare, ticket_issued_date, platform, airline, ticket_status, issued_partner:issued_partners(name)')
         .eq('is_deleted', false)
 
     // Base query for Tickets (Counts)
@@ -99,12 +102,14 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
             totalRevenue: 0,
             totalCost: 0,
             totalTickets: 0,
+            totalBookings: 0,
             totalProfit: 0,
             averageMargin: 0,
             revenueTrend: [],
             bookingsByAirline: [],
             bookingsByPlatform: [],
-            bookingsByIssuedPartner: []
+            bookingsByIssuedPartner: [],
+            bookingStatusDistribution: []
         };
     }
 
@@ -119,6 +124,7 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
 
     // 2. Counts (from Tickets)
     const totalTickets = ticketCount || 0;
+    const totalBookings = bookings?.length || 0;
 
     // 3. Trends & Distributions
     const trendMap = new Map<string, { ticketsCount: number; revenue: number; profit: number }>();
@@ -176,16 +182,28 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value);
 
+    // By Status (Count Bookings)
+    const statusMap = new Map<string, number>();
+    bookings?.forEach(b => {
+        const s = b.ticket_status || 'Unknown';
+        statusMap.set(s, (statusMap.get(s) || 0) + 1);
+    });
+    const bookingStatusDistribution = Array.from(statusMap.entries())
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
+
     return {
         totalRevenue,
         totalCost,
         totalTickets,
+        totalBookings,
         totalProfit,
         averageMargin,
         revenueTrend,
         bookingsByAirline,
         bookingsByPlatform,
-        bookingsByIssuedPartner
+        bookingsByIssuedPartner,
+        bookingStatusDistribution
     };
 }
 

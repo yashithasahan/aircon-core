@@ -699,6 +699,7 @@ export type BookingFilters = {
     endDate?: string;
     agentId?: string;
     issuedPartnerId?: string;
+    transactionType?: string;
     page?: number;
     limit?: number;
 }
