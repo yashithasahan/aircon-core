@@ -41,8 +41,9 @@ export function AnalyticsFilters({
     showAgentFilter = true,
     showIssuedPartnerFilter = true,
     showDate = true,
-    showTransactionTypeFilter = false
-}: AnalyticsFiltersProps) {
+    showTransactionTypeFilter = false,
+    showUnifiedEntityFilter = false
+}: AnalyticsFiltersProps & { showUnifiedEntityFilter?: boolean }) {
     const router = useRouter()
     const pathname = usePathname()
     const searchParams = useSearchParams()
@@ -71,8 +72,8 @@ export function AnalyticsFilters({
     }, [searchParams])
 
     const activeFilterCount = [
-        showAgentFilter && agentId !== "ALL",
-        showIssuedPartnerFilter && issuedPartnerId !== "ALL",
+        (showAgentFilter || showUnifiedEntityFilter) && agentId !== "ALL",
+        (showIssuedPartnerFilter || showUnifiedEntityFilter) && issuedPartnerId !== "ALL",
         showDate && date?.from,
         showTransactionTypeFilter && transactionType !== "ALL"
     ].filter(Boolean).length
@@ -80,12 +81,12 @@ export function AnalyticsFilters({
     const handleApply = () => {
         const params = new URLSearchParams(searchParams.toString())
 
-        if (showAgentFilter) {
+        if (showAgentFilter || showUnifiedEntityFilter) {
             if (agentId && agentId !== "ALL") params.set("agentId", agentId)
             else params.delete("agentId")
         }
 
-        if (showIssuedPartnerFilter) {
+        if (showIssuedPartnerFilter || showUnifiedEntityFilter) {
             if (issuedPartnerId && issuedPartnerId !== "ALL") params.set("issuedPartnerId", issuedPartnerId)
             else params.delete("issuedPartnerId")
         }
@@ -146,8 +147,47 @@ export function AnalyticsFilters({
                 <Card className="shadow-sm border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 animate-in fade-in slide-in-from-top-2">
                     <CardContent className="grid gap-6 p-6">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {/* Agent */}
-                            {showAgentFilter && (
+                            {/* Unified Entity Filter */}
+                            {showUnifiedEntityFilter && (
+                                <div className="space-y-2">
+                                    <Label>Entity (Agent / Partner)</Label>
+                                    <Select
+                                        value={agentId !== "ALL" ? `AGENT:${agentId}` : issuedPartnerId !== "ALL" ? `PARTNER:${issuedPartnerId}` : "ALL"}
+                                        onValueChange={(value) => {
+                                            if (value === "ALL") {
+                                                setAgentId("ALL");
+                                                setIssuedPartnerId("ALL");
+                                            } else if (value.startsWith("AGENT:")) {
+                                                setAgentId(value.split(":")[1]);
+                                                setIssuedPartnerId("ALL");
+                                            } else if (value.startsWith("PARTNER:")) {
+                                                setIssuedPartnerId(value.split(":")[1]);
+                                                setAgentId("ALL");
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="All Entities" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ALL">All Entities</SelectItem>
+                                            {/* Agents Group */}
+                                            {agents.length > 0 && <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Agents</div>}
+                                            {agents.map(a => (
+                                                <SelectItem key={`agent-${a.id}`} value={`AGENT:${a.id}`}>{a.name}</SelectItem>
+                                            ))}
+                                            {/* Partners Group */}
+                                            {issuedPartners.length > 0 && <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Issued Partners</div>}
+                                            {issuedPartners.map(p => (
+                                                <SelectItem key={`partner-${p.id}`} value={`PARTNER:${p.id}`}>{p.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+
+                            {/* Agent (Separate) */}
+                            {showAgentFilter && !showUnifiedEntityFilter && (
                                 <div className="space-y-2">
                                     <Label>Agent</Label>
                                     <Select value={agentId} onValueChange={setAgentId}>
@@ -164,8 +204,8 @@ export function AnalyticsFilters({
                                 </div>
                             )}
 
-                            {/* Issued Partner */}
-                            {showIssuedPartnerFilter && (
+                            {/* Issued Partner (Separate) */}
+                            {showIssuedPartnerFilter && !showUnifiedEntityFilter && (
                                 <div className="space-y-2">
                                     <Label>Issued Partner</Label>
                                     <Select value={issuedPartnerId} onValueChange={setIssuedPartnerId}>

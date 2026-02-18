@@ -48,7 +48,7 @@ export function TicketsTab({
                 <ExportButton filters={filters} />
             </div>
 
-            <BookingFilters platforms={platforms} agents={agents} issuedPartners={issuedPartners} />
+            <BookingFilters platforms={platforms} agents={agents} issuedPartners={issuedPartners} showUnifiedEntityFilter={true} />
 
             <Card className="border-slate-200 dark:border-slate-800 shadow-sm bg-white/50 dark:bg-slate-950/50 backdrop-blur-sm">
                 <CardHeader className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">

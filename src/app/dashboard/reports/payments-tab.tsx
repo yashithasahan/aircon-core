@@ -50,6 +50,7 @@ export function PaymentsTab({
                 showTransactionTypeFilter={true}
                 showAgentFilter={true} // Allow filtering by either
                 showIssuedPartnerFilter={true}
+                showUnifiedEntityFilter={true}
             />
 
             <Card className="border-slate-200 dark:border-slate-800 shadow-sm bg-white/50 dark:bg-slate-950/50 backdrop-blur-sm">

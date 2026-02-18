@@ -36,22 +36,29 @@ export function ExportButton({ filters }: ExportButtonProps) {
             }
 
             // Transform data for Excel
-            const excelData = data.map((ticket: any) => ({
-                "PNR": ticket.booking?.pnr,
-                "Entry Date": ticket.booking?.entry_date ? format(new Date(ticket.booking.entry_date), 'yyyy-MM-dd') : '',
-                "Passenger": `${ticket.title || ''} ${ticket.first_name || ''} ${ticket.surname || ''}`.trim(),
-                "Ticket Number": ticket.ticket_number,
-                "Status": ticket.ticket_status,
-                "Airline": ticket.booking?.airline,
-                "Route": ticket.booking?.origin && ticket.booking?.destination ? `${ticket.booking.origin} - ${ticket.booking.destination}` : '',
-                "Cost": Number(ticket.cost_price || 0),
-                "Selling Price": Number(ticket.sale_price || 0),
-                "Profit": (Number(ticket.sale_price || 0) - Number(ticket.cost_price || 0)),
-                "Platform": ticket.booking?.platform,
-                "Issued Partner": ticket.booking?.issued_partner?.name || '-',
-                "Agent": ticket.booking?.agent?.name || '-',
-                "Booking Source": ticket.booking?.booking_source
-            }))
+            const excelData = data.map((ticket: any) => {
+                let status = ticket.ticket_status;
+                if (status === 'ISSUED' && (ticket.booking?.booking_type === 'REISSUE' || ticket.booking?.parent_booking_id)) {
+                    status = 'REISSUE';
+                }
+
+                return {
+                    "PNR": ticket.booking?.pnr,
+                    "Entry Date": ticket.booking?.entry_date ? format(new Date(ticket.booking.entry_date), 'yyyy-MM-dd') : '',
+                    "Passenger": `${ticket.title || ''} ${ticket.first_name || ''} ${ticket.surname || ''}`.trim(),
+                    "Ticket Number": ticket.ticket_number,
+                    "Status": status,
+                    "Airline": ticket.booking?.airline,
+                    "Route": `${ticket.booking?.origin || ''} - ${ticket.booking?.destination || ''}`,
+                    "Cost": Number(ticket.cost_price || 0),
+                    "Selling Price": Number(ticket.sale_price || 0),
+                    "Profit": (Number(ticket.sale_price || 0) - Number(ticket.cost_price || 0)),
+                    "Platform": ticket.booking?.platform,
+                    "Issued Partner": ticket.booking?.issued_partner?.name || '-',
+                    "Agent": ticket.booking?.agent?.name || '-',
+                    "Booking Source": ticket.booking?.booking_source
+                }
+            })
 
             const worksheet = XLSX.utils.json_to_sheet(excelData)
             const workbook = XLSX.utils.book_new()
