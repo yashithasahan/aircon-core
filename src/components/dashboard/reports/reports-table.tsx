@@ -30,6 +30,8 @@ export interface TicketReportRow {
         platform: string;
         agent: { name: string } | null;
         issued_partner: { name: string } | null;
+        booking_type?: string;
+        parent_booking_id?: string;
     }
 }
 
@@ -107,6 +109,11 @@ export function ReportsTable({ tickets }: ReportsTableProps) {
                                     <Badge variant="outline" className={`font-normal ${getStatusColor(ticket.ticket_status)}`}>
                                         {ticket.ticket_status || 'PENDING'}
                                     </Badge>
+                                    {(ticket.booking?.booking_type === 'REISSUE' || !!ticket.booking?.parent_booking_id) && (
+                                        <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-5 bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800">
+                                            Reissue
+                                        </Badge>
+                                    )}
                                 </TableCell>
                                 <TableCell className="text-slate-500">{ticket.booking?.issued_partner?.name || '-'}</TableCell>
                                 <TableCell className="text-slate-500">{ticket.booking?.platform || '-'}</TableCell>

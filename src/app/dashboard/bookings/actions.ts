@@ -13,6 +13,12 @@ export async function createBooking(formData: BookingFormData) {
     const totalFare = formData.passengers?.reduce((sum, p) => sum + (Number(p.cost_price) || 0), 0) || 0;
     const totalSellingPrice = formData.passengers?.reduce((sum, p) => sum + (Number(p.sale_price) || 0), 0) || 0;
 
+    // Fix: Enforce REISSUE status if booking_type is REISSUE
+    // This ensures reports show "REISSUE" instead of "ISSUED" for reissued tickets.
+    if (formData.booking_type === 'REISSUE' && formData.ticket_status === 'ISSUED') {
+        formData.ticket_status = 'REISSUE' as any;
+    }
+
     // Construct display strings
     // pax_name: "Title First Surname, Title First Surname"
     const paxNameDisplay = formData.passengers?.map(p => {
@@ -75,7 +81,7 @@ export async function createBooking(formData: BookingFormData) {
                 transaction_type: 'BOOKING_DEDUCTION',
                 description: transactionDesc,
                 reference_id: null,
-                created_at: new Date(formData.entry_date).toISOString()
+                created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
             }])
         }
 
@@ -101,7 +107,7 @@ export async function createBooking(formData: BookingFormData) {
                     transaction_type: 'BOOKING_DEDUCTION',
                     description: transactionDesc,
                     reference_id: null,
-                    created_at: new Date(formData.entry_date).toISOString()
+                    created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
                 }])
             }
         }
@@ -170,7 +176,9 @@ export async function createBooking(formData: BookingFormData) {
             passport_expiry: p.passport_expiry ? new Date(p.passport_expiry).toISOString() : null, // Ensure valid date format if needed, or leave string if text column? SQL says DATE.
             sale_price: Number(p.sale_price) || 0,
             cost_price: Number(p.cost_price) || 0,
-            ticket_status: p.ticket_status || formData.ticket_status || 'PENDING',
+            ticket_status: (formData.ticket_status === 'REISSUE' && (p.ticket_status === 'ISSUED' || !p.ticket_status))
+                ? 'REISSUE'
+                : (p.ticket_status || formData.ticket_status || 'PENDING'),
             phone_number: p.phone_number,
             contact_info: p.contact_info
         }));
@@ -214,6 +222,16 @@ export async function createBooking(formData: BookingFormData) {
 export async function updateBooking(id: string, formData: BookingFormData) {
     const supabase = await createClient()
 
+    // 3. Financial Update Logic (Credit/Debt Reversal & Recharge)
+    const { data: currentBooking } = await supabase
+        .from('bookings')
+        .select(`
+            *,
+            passengers:booking_passengers(*)
+        `)
+        .eq('id', id)
+        .single()
+
     // 0. Auto-derive Booking Status from Passengers
     // If we have passengers, the booking status should reflect their collective status.
     if (formData.passengers?.length > 0) {
@@ -231,12 +249,12 @@ export async function updateBooking(id: string, formData: BookingFormData) {
             formData.ticket_status = 'REISSUE' as any;
         } else if (paxs.some(p => p.ticket_status === 'ISSUED' || (p.ticket_status as string) === 'REISSUE')) {
             // If at least one is ISSUED or REISSUE, the booking is active
-            formData.ticket_status = 'ISSUED'; // Or maybe REISSUE? Let's stick to ISSUED if mixed, or prefer REISSUE?
-            // User wants "make tickets visible as reissue ticket".
-            // If explicit REISSUE status exists, let's use it if any pax is REISSUE?
-            // But usually mixed status is complex. Let's assume if user sets global status to REISSUE, it stays.
-            // For now, let's just add REISSUE to the active check.
-            if (paxs.some(p => (p.ticket_status as string) === 'REISSUE')) {
+
+            // Fix: If original booking was REISSUE (or formData says so), prefer REISSUE status over ISSUED
+            // even if passengers are marked as ISSUED.
+            const isReissueType = formData.booking_type === 'REISSUE' || currentBooking?.booking_type === 'REISSUE';
+
+            if (paxs.some(p => (p.ticket_status as string) === 'REISSUE') || isReissueType) {
                 formData.ticket_status = 'REISSUE' as any;
             } else {
                 formData.ticket_status = 'ISSUED';
@@ -274,23 +292,30 @@ export async function updateBooking(id: string, formData: BookingFormData) {
         }
     }
 
-    // 3. Financial Update Logic (Credit/Debt Reversal & Recharge)
-    const { data: currentBooking } = await supabase
-        .from('bookings')
-        .select(`
-            *,
-            passengers:booking_passengers(*)
-        `)
-        .eq('id', id)
-        .single()
 
+    // Note: currentBooking is already fetched at top of function
     if (currentBooking) {
+
         // Detect Financial Changes using aggregated totals
         const isStatusChanged = currentBooking.ticket_status !== formData.ticket_status;
-        const isAmountChanged = Number(currentBooking.fare) !== totalFare || Number(currentBooking.selling_price) !== totalSellingPrice;
+
+        // Helper to compare amounts with epsilon
+        const isAmountDifferent = (a: number, b: number) => Math.abs(a - b) > 0.001;
+        const isAmountChanged = isAmountDifferent(Number(currentBooking.fare) || 0, totalFare) ||
+            isAmountDifferent(Number(currentBooking.selling_price) || 0, totalSellingPrice);
 
         const isAgentChanged = currentBooking.agent_id !== (formData.agent_id || null) || currentBooking.booking_source !== formData.booking_source;
         const isPartnerChanged = currentBooking.issued_partner_id !== (formData.issued_partner_id || null);
+
+        // Helper to compare dates (string vs Date object normalization)
+        const normalizeDate = (d: string | null) => d ? new Date(d).toISOString().split('T')[0] : null; // Compare YYYY-MM-DD for safety, or full ISO if time matters?
+        // Actually ticket_issued_date might be full timestamp. Let's compare limits.
+        const isDateDifferent = (d1: string | null, d2: string | null) => {
+            if (!d1 && !d2) return false;
+            if (!d1 || !d2) return true;
+            return new Date(d1).getTime() !== new Date(d2).getTime();
+        }
+        const isDateChanged = isDateDifferent(currentBooking.ticket_issued_date, formData.ticket_issued_date || null);
 
         // A booking is "Billable" if it is ISSUED, REISSUE, or REFUNDED
         const isBillableStatus = (status: string) => ['ISSUED', 'REFUNDED', 'REISSUE'].includes(status);
@@ -299,9 +324,12 @@ export async function updateBooking(id: string, formData: BookingFormData) {
         const isBillable = isBillableStatus(formData.ticket_status || '');
 
         // We trigger an update if:
-        // 1. Status changed (Billable -> Non-Billable OR Non-Billable -> Billable)
-        // 2. Status is Billable AND amounts/partners changed
-        const hasFinancialChange = isStatusChanged || (wasBillable && isBillable && (isAmountChanged || isAgentChanged || isPartnerChanged));
+        // 1. Billable status FLIPPED (e.g. Billable -> Non-Billable OR Non-Billable -> Billable)
+        // 2. Status is Billable AND amounts/partners/dates changed
+        // NOTE: We do NOT trigger solely on isStatusChanged anymore if both old/new are Billable (e.g. REISSUE -> REFUNDED)
+        // because usually cost/sell price remains same for the base ticket, and Refund is handled separately in Step C.
+        const hasFinancialChange = (wasBillable !== isBillable) ||
+            (wasBillable && isBillable && (isAmountChanged || isAgentChanged || isPartnerChanged || isDateChanged));
 
         if (hasFinancialChange) {
 
@@ -330,7 +358,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                             transaction_type: 'REFUND', // or REVERSAL
                             description: `Update Reversal for PNR ${currentBooking.pnr}`,
                             reference_id: id,
-                            created_at: new Date(currentBooking.entry_date).toISOString()
+                            created_at: new Date(currentBooking.ticket_issued_date || currentBooking.entry_date).toISOString()
                         }])
                     }
                 }
@@ -358,7 +386,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                             transaction_type: 'REFUND',
                             description: `Update Reversal for PNR ${currentBooking.pnr}`,
                             reference_id: id,
-                            created_at: new Date(currentBooking.entry_date).toISOString()
+                            created_at: new Date(currentBooking.ticket_issued_date || currentBooking.entry_date).toISOString()
                         }])
                     }
                 }
@@ -397,7 +425,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                             transaction_type: 'BOOKING_DEDUCTION',
                             description: transactionDesc,
                             reference_id: id,
-                            created_at: new Date(formData.entry_date).toISOString()
+                            created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
                         }])
                     }
                 }
@@ -427,7 +455,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                             transaction_type: 'BOOKING_DEDUCTION',
                             description: transactionDesc,
                             reference_id: id,
-                            created_at: new Date(formData.entry_date).toISOString()
+                            created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
                         }])
                     }
                 }
@@ -795,6 +823,8 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
                 ticket_status,
                 booking_source,
                 platform,
+                booking_type,
+                parent_booking_id,
                 agent:agents(name),
                 issued_partner:issued_partners(name),
                 fare,
@@ -804,6 +834,7 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
         `, { count: 'exact' })
     // .eq('booking.is_deleted', false) // Inner join handles this if we filter properly, but Supabase syntax for inner filter is tricky.
     // Better to filter on the joined table using !inner if we want to filter by booking fields.
+    dbQuery = dbQuery.filter('booking.is_deleted', 'eq', false);
 
     // Apply Filters - mostly on the joined 'booking' table
 

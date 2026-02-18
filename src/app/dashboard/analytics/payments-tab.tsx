@@ -35,6 +35,10 @@ export function PaymentsTab({
     const handleEntityTypeChange = (type: string) => {
         const params = new URLSearchParams(searchParams.toString())
         params.set('paymentType', type)
+        // Clear conflicting filters when switching tabs manually
+        if (type === 'AGENT') params.delete('issuedPartnerId')
+        else if (type === 'ISSUED_PARTNER') params.delete('agentId')
+
         router.push(`${pathname}?${params.toString()}`)
     }
 
@@ -61,6 +65,7 @@ export function PaymentsTab({
                 showIssuedPartnerFilter={activeEntityType === 'ISSUED_PARTNER'}
                 showDate={true}
                 showTransactionTypeFilter={true}
+                showUnifiedEntityFilter={true}
             />
 
             {/* Summary Cards */}

@@ -32,9 +32,10 @@ interface BookingFiltersProps {
     agents: Agent[]
     issuedPartners: IssuedPartner[]
     children?: React.ReactNode
+    showUnifiedEntityFilter?: boolean
 }
 
-export function BookingFilters({ platforms, agents, issuedPartners, children }: BookingFiltersProps) {
+export function BookingFilters({ platforms, agents, issuedPartners, children, showUnifiedEntityFilter = false }: BookingFiltersProps) {
     const router = useRouter()
     const pathname = usePathname()
     const searchParams = useSearchParams()
@@ -71,8 +72,8 @@ export function BookingFilters({ platforms, agents, issuedPartners, children }: 
         status !== "ALL",
         platform !== "ALL",
         airline !== "",
-        agentId !== "ALL",
-        issuedPartnerId !== "ALL",
+        (agentId !== "ALL" || (showUnifiedEntityFilter && agentId !== "ALL")), // Logic check: if unified, agentId still holds the value
+        (issuedPartnerId !== "ALL" || (showUnifiedEntityFilter && issuedPartnerId !== "ALL")),
         date?.from
     ].filter(Boolean).length
 
@@ -163,9 +164,9 @@ export function BookingFilters({ platforms, agents, issuedPartners, children }: 
                                         <SelectItem value="ALL">All Statuses</SelectItem>
                                         <SelectItem value="PENDING">Pending</SelectItem>
                                         <SelectItem value="ISSUED">Issued</SelectItem>
+                                        <SelectItem value="REISSUE">Reissue</SelectItem>
                                         <SelectItem value="VOID">Void</SelectItem>
                                         <SelectItem value="REFUNDED">Refunded</SelectItem>
-                                        <SelectItem value="CANCELED">Canceled</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -196,37 +197,80 @@ export function BookingFilters({ platforms, agents, issuedPartners, children }: 
                                 />
                             </div>
 
+                            {/* Unified Entity Filter */}
+                            {showUnifiedEntityFilter && (
+                                <div className="space-y-2">
+                                    <Label>Entity (Agent / Partner)</Label>
+                                    <Select
+                                        value={agentId !== "ALL" ? `AGENT:${agentId}` : issuedPartnerId !== "ALL" ? `PARTNER:${issuedPartnerId}` : "ALL"}
+                                        onValueChange={(value) => {
+                                            if (value === "ALL") {
+                                                setAgentId("ALL");
+                                                setIssuedPartnerId("ALL");
+                                            } else if (value.startsWith("AGENT:")) {
+                                                setAgentId(value.split(":")[1]);
+                                                setIssuedPartnerId("ALL");
+                                            } else if (value.startsWith("PARTNER:")) {
+                                                setIssuedPartnerId(value.split(":")[1]);
+                                                setAgentId("ALL");
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="All Entities" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ALL">All Entities</SelectItem>
+                                            {/* Agents Group */}
+                                            {agents.length > 0 && <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Agents</div>}
+                                            {agents.map(a => (
+                                                <SelectItem key={`agent-${a.id}`} value={`AGENT:${a.id}`}>{a.name}</SelectItem>
+                                            ))}
+                                            {/* Partners Group */}
+                                            {issuedPartners.length > 0 && <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Issued Partners</div>}
+                                            {issuedPartners.map(p => (
+                                                <SelectItem key={`partner-${p.id}`} value={`PARTNER:${p.id}`}>{p.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+
                             {/* Agent */}
-                            <div className="space-y-2">
-                                <Label>Agent</Label>
-                                <Select value={agentId} onValueChange={setAgentId}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="All Agents" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="ALL">All Agents</SelectItem>
-                                        {agents.map(a => (
-                                            <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                            {!showUnifiedEntityFilter && (
+                                <div className="space-y-2">
+                                    <Label>Agent</Label>
+                                    <Select value={agentId} onValueChange={setAgentId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="All Agents" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ALL">All Agents</SelectItem>
+                                            {agents.map(a => (
+                                                <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
 
                             {/* Issued From */}
-                            <div className="space-y-2">
-                                <Label>Issued Partners</Label>
-                                <Select value={issuedPartnerId} onValueChange={setIssuedPartnerId}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="All Partners" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="ALL">All Partners</SelectItem>
-                                        {issuedPartners.map(b => (
-                                            <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                            {!showUnifiedEntityFilter && (
+                                <div className="space-y-2">
+                                    <Label>Issued Partners</Label>
+                                    <Select value={issuedPartnerId} onValueChange={setIssuedPartnerId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="All Partners" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ALL">All Partners</SelectItem>
+                                            {issuedPartners.map(b => (
+                                                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
 
                             {/* Date Range */}
                             <div className="space-y-2">

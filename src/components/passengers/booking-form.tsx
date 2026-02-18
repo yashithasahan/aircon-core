@@ -126,6 +126,15 @@ const bookingFormSchema = z.object({
             path: ["agent_id"]
         });
     }
+
+    // Validate Issued Date for Issued/Reissue status
+    if ((data.ticket_status === 'ISSUED' || data.ticket_status === 'REISSUE') && !data.ticket_issued_date) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Issued Date is required when status is Issued/Reissue",
+            path: ["ticket_issued_date"]
+        });
+    }
 });
 
 type BookingFormValues = z.infer<typeof bookingFormSchema>
@@ -525,10 +534,12 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                         <Popover open={openPaxIndex === index} onOpenChange={(open) => setOpenPaxIndex(open ? index : null)}>
                                             <PopoverTrigger asChild>
                                                 <Button variant="outline" role="combobox" className="w-full justify-between">
-                                                    {watch(`passengers.${index}.first_name`) || watch(`passengers.${index}.surname`)
-                                                        ? `${watch(`passengers.${index}.first_name`)} ${watch(`passengers.${index}.surname`)}`
-                                                        : "Select..."}
-                                                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                                                    <span className="truncate">
+                                                        {watch(`passengers.${index}.first_name`) || watch(`passengers.${index}.surname`)
+                                                            ? `${watch(`passengers.${index}.first_name`)} ${watch(`passengers.${index}.surname`)}`
+                                                            : "Select..."}
+                                                    </span>
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                                 </Button>
                                             </PopoverTrigger>
                                             <PopoverContent className="w-[300px] p-0">
@@ -895,8 +906,10 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                                     <PopoverTrigger asChild>
                                                         <FormControl>
                                                             <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
-                                                                {field.value ? agents.find((a) => a.id === field.value)?.name : "Select..."}
-                                                                <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                                                                <span className="truncate">
+                                                                    {field.value ? agents.find((a) => a.id === field.value)?.name : "Select..."}
+                                                                </span>
+                                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                                             </Button>
                                                         </FormControl>
                                                     </PopoverTrigger>
@@ -945,8 +958,10 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                             <PopoverTrigger asChild>
                                                 <FormControl>
                                                     <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
-                                                        {field.value ? issuedPartners.find((t) => t.id === field.value)?.name : "Select..."}
-                                                        <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                                                        <span className="truncate">
+                                                            {field.value ? issuedPartners.find((t) => t.id === field.value)?.name : "Select..."}
+                                                        </span>
+                                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                                     </Button>
                                                 </FormControl>
                                             </PopoverTrigger>
@@ -994,8 +1009,10 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                             <PopoverTrigger asChild>
                                                 <FormControl>
                                                     <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
-                                                        {field.value ? (platforms.find((p) => p.name === field.value)?.name || (field.value as string)) : "Select..."}
-                                                        <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                                                        <span className="truncate">
+                                                            {field.value ? (platforms.find((p) => p.name === field.value)?.name || (field.value as string)) : "Select..."}
+                                                        </span>
+                                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                                     </Button>
                                                 </FormControl>
                                             </PopoverTrigger>

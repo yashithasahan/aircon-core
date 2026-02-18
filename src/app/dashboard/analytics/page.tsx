@@ -41,7 +41,11 @@ export default async function AnalyticsPage({
         limit: Number(limit) || 20
     };
 
-    const activePaymentType = (paymentType as 'AGENT' | 'ISSUED_PARTNER') || 'AGENT';
+    let activePaymentType = (paymentType as 'AGENT' | 'ISSUED_PARTNER') || 'AGENT';
+
+    // Override if specific filter is set (Unified Filter behavior)
+    if (agentId && agentId !== 'ALL') activePaymentType = 'AGENT';
+    if (issuedPartnerId && issuedPartnerId !== 'ALL') activePaymentType = 'ISSUED_PARTNER';
 
     const [
         summary,
@@ -86,6 +90,7 @@ export default async function AnalyticsPage({
                         platforms={platforms}
                         agents={agents}
                         issuedPartners={issuedPartners}
+                        showUnifiedEntityFilter={true}
                     />
                     <BookingsTab
                         summary={summary}
