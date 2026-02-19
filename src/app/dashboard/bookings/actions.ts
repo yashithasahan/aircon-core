@@ -216,6 +216,8 @@ export async function createBooking(formData: BookingFormData) {
     revalidatePath('/dashboard/bookings')
     revalidatePath('/dashboard')
     revalidatePath('/dashboard/payments')
+    revalidatePath('/dashboard/analytics')
+    revalidatePath('/dashboard/reports')
 }
 
 
@@ -332,131 +334,151 @@ export async function updateBooking(id: string, formData: BookingFormData) {
             (wasBillable && isBillable && (isAmountChanged || isAgentChanged || isPartnerChanged || isDateChanged));
 
         if (hasFinancialChange) {
+            // Optimization: If ONLY the date changed (and amounts/entities are same), 
+            // just update the date of the existing transaction instead of Reversal + Charge.
+            const isOnlyDateChange = wasBillable && isBillable && isDateChanged &&
+                !isStatusChanged && !isAmountChanged && !isAgentChanged && !isPartnerChanged;
 
-            // Step A: REVERSE Old Transaction (if it was Billable ie ISSUED or REFUNDED)
-            if (wasBillable) {
-                // 1. Reverse Issued Partner (Refund)
-                if (currentBooking.issued_partner_id) {
-                    const { data: oldPartner } = await supabase
-                        .from('issued_partners')
-                        .select('balance')
-                        .eq('id', currentBooking.issued_partner_id)
-                        .single()
+            if (isOnlyDateChange) {
+                const newDate = new Date(formData.ticket_issued_date || formData.entry_date).toISOString();
+                const { error: dateUpdateError } = await supabase
+                    .from('credit_transactions')
+                    .update({ created_at: newDate })
+                    .eq('reference_id', id)
+                    .eq('transaction_type', 'BOOKING_DEDUCTION'); // Only move the initial issuance cost
 
-                    if (oldPartner) {
-                        const oldCost = Number(currentBooking.fare) || 0;
-                        const { error: refundError } = await supabase
+                if (dateUpdateError) {
+                    console.error('Failed to update transaction date:', dateUpdateError);
+                    throw new Error('Failed to update transaction date');
+                }
+            } else {
+                // Standard Logic: Reverse Old + Charge New
+
+                // Step A: REVERSE Old Transaction (if it was Billable ie ISSUED or REFUNDED)
+                if (wasBillable) {
+                    // 1. Reverse Issued Partner (Refund)
+                    if (currentBooking.issued_partner_id) {
+                        const { data: oldPartner } = await supabase
                             .from('issued_partners')
-                            .update({ balance: Number(oldPartner.balance) + oldCost })
+                            .select('balance')
                             .eq('id', currentBooking.issued_partner_id)
+                            .single()
 
-                        if (refundError) throw new Error(`Failed to refund partner: ${refundError.message}`)
+                        if (oldPartner) {
+                            const oldCost = Number(currentBooking.fare) || 0;
+                            const { error: refundError } = await supabase
+                                .from('issued_partners')
+                                .update({ balance: Number(oldPartner.balance) + oldCost })
+                                .eq('id', currentBooking.issued_partner_id)
 
-                        await supabase.from('credit_transactions').insert([{
-                            issued_partner_id: currentBooking.issued_partner_id,
-                            amount: oldCost,
-                            transaction_type: 'REFUND', // or REVERSAL
-                            description: `Update Reversal for PNR ${currentBooking.pnr}`,
-                            reference_id: id,
-                            created_at: new Date(currentBooking.ticket_issued_date || currentBooking.entry_date).toISOString()
-                        }])
+                            if (refundError) throw new Error(`Failed to refund partner: ${refundError.message}`)
+
+                            await supabase.from('credit_transactions').insert([{
+                                issued_partner_id: currentBooking.issued_partner_id,
+                                amount: oldCost,
+                                transaction_type: 'REFUND', // or REVERSAL
+                                description: `Update Reversal for PNR ${currentBooking.pnr}`,
+                                reference_id: id,
+                                created_at: new Date(currentBooking.ticket_issued_date || currentBooking.entry_date).toISOString()
+                            }])
+                        }
                     }
-                }
 
-                // 2. Reverse Agent (Reduce Debt)
-                if (currentBooking.agent_id) {
-                    const { data: oldAgent } = await supabase
-                        .from('agents')
-                        .select('balance')
-                        .eq('id', currentBooking.agent_id)
-                        .single()
-
-                    if (oldAgent) {
-                        const oldPrice = Number(currentBooking.selling_price) || 0;
-                        const { error: reduceError } = await supabase
+                    // 2. Reverse Agent (Reduce Debt)
+                    if (currentBooking.agent_id) {
+                        const { data: oldAgent } = await supabase
                             .from('agents')
-                            .update({ balance: Number(oldAgent.balance) - oldPrice })
+                            .select('balance')
                             .eq('id', currentBooking.agent_id)
+                            .single()
 
-                        if (reduceError) throw new Error(`Failed to reduce agent debt: ${reduceError.message}`)
+                        if (oldAgent) {
+                            const oldPrice = Number(currentBooking.selling_price) || 0;
+                            const { error: reduceError } = await supabase
+                                .from('agents')
+                                .update({ balance: Number(oldAgent.balance) - oldPrice })
+                                .eq('id', currentBooking.agent_id)
 
-                        await supabase.from('credit_transactions').insert([{
-                            agent_id: currentBooking.agent_id,
-                            amount: -oldPrice,
-                            transaction_type: 'REFUND',
-                            description: `Update Reversal for PNR ${currentBooking.pnr}`,
-                            reference_id: id,
-                            created_at: new Date(currentBooking.ticket_issued_date || currentBooking.entry_date).toISOString()
-                        }])
+                            if (reduceError) throw new Error(`Failed to reduce agent debt: ${reduceError.message}`)
+
+                            await supabase.from('credit_transactions').insert([{
+                                agent_id: currentBooking.agent_id,
+                                amount: -oldPrice,
+                                transaction_type: 'REFUND',
+                                description: `Update Reversal for PNR ${currentBooking.pnr}`,
+                                reference_id: id,
+                                created_at: new Date(currentBooking.ticket_issued_date || currentBooking.entry_date).toISOString()
+                            }])
+                        }
                     }
                 }
-            }
 
-            // Step B: CHARGE New Transaction (if it becomes/stays Billable ie ISSUED or REFUNDED)
-            const effectiveCurrency = formData.currency || currentBooking.currency || 'EUR';
+                // Step B: CHARGE New Transaction (if it becomes/stays Billable ie ISSUED or REFUNDED)
+                const effectiveCurrency = formData.currency || currentBooking.currency || 'EUR';
 
-            if (isBillable && effectiveCurrency !== 'LKR') {
-                const newCost = totalFare; // Use calculated total
-                const newPrice = totalSellingPrice; // Use calculated total
+                if (isBillable && effectiveCurrency !== 'LKR') {
+                    const newCost = totalFare; // Use calculated total
+                    const newPrice = totalSellingPrice; // Use calculated total
 
-                const isReissue = currentBooking.booking_type === 'REISSUE' || formData.ticket_status === 'REISSUE';
-                const transactionDesc = isReissue ? `Booking Re-issuance (update) for PNR ${formData.pnr}` : `Booking issuance (update) for PNR ${formData.pnr}`;
+                    const isReissue = currentBooking.booking_type === 'REISSUE' || formData.ticket_status === 'REISSUE';
+                    const transactionDesc = isReissue ? `Booking Re-issuance (update) for PNR ${formData.pnr}` : `Booking issuance (update) for PNR ${formData.pnr}`;
 
-                // 1. Charge Issued Partner
-                const newPartnerId = formData.issued_partner_id;
-                if (newPartnerId) {
-                    const { data: newPartner } = await supabase
-                        .from('issued_partners')
-                        .select('balance')
-                        .eq('id', newPartnerId)
-                        .single()
-
-                    if (newPartner) {
-                        const { error: chargeError } = await supabase
+                    // 1. Charge Issued Partner
+                    const newPartnerId = formData.issued_partner_id;
+                    if (newPartnerId) {
+                        const { data: newPartner } = await supabase
                             .from('issued_partners')
-                            .update({ balance: Number(newPartner.balance) - newCost })
+                            .select('balance')
                             .eq('id', newPartnerId)
+                            .single()
 
-                        if (chargeError) throw new Error(`Failed to charge partner: ${chargeError.message}`)
+                        if (newPartner) {
+                            const { error: chargeError } = await supabase
+                                .from('issued_partners')
+                                .update({ balance: Number(newPartner.balance) - newCost })
+                                .eq('id', newPartnerId)
 
-                        await supabase.from('credit_transactions').insert([{
-                            issued_partner_id: newPartnerId,
-                            amount: -newCost,
-                            transaction_type: 'BOOKING_DEDUCTION',
-                            description: transactionDesc,
-                            reference_id: id,
-                            created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
-                        }])
+                            if (chargeError) throw new Error(`Failed to charge partner: ${chargeError.message}`)
+
+                            await supabase.from('credit_transactions').insert([{
+                                issued_partner_id: newPartnerId,
+                                amount: -newCost,
+                                transaction_type: 'BOOKING_DEDUCTION',
+                                description: transactionDesc,
+                                reference_id: id,
+                                created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
+                            }])
+                        }
                     }
-                }
 
-                // 2. Charge Agent (Add Debt)
-                const newSource = formData.booking_source || 'AGENT';
-                const newAgentId = formData.agent_id;
+                    // 2. Charge Agent (Add Debt)
+                    const newSource = formData.booking_source || 'AGENT';
+                    const newAgentId = formData.agent_id;
 
-                if (newSource === 'AGENT' && newAgentId) {
-                    const { data: newAgent } = await supabase
-                        .from('agents')
-                        .select('balance')
-                        .eq('id', newAgentId)
-                        .single()
-
-                    if (newAgent) {
-                        const { error: debtError } = await supabase
+                    if (newSource === 'AGENT' && newAgentId) {
+                        const { data: newAgent } = await supabase
                             .from('agents')
-                            .update({ balance: Number(newAgent.balance) + newPrice })
+                            .select('balance')
                             .eq('id', newAgentId)
+                            .single()
 
-                        if (debtError) throw new Error(`Failed to add agent debt: ${debtError.message}`)
+                        if (newAgent) {
+                            const { error: debtError } = await supabase
+                                .from('agents')
+                                .update({ balance: Number(newAgent.balance) + newPrice })
+                                .eq('id', newAgentId)
 
-                        await supabase.from('credit_transactions').insert([{
-                            agent_id: newAgentId,
-                            amount: newPrice,
-                            transaction_type: 'BOOKING_DEDUCTION',
-                            description: transactionDesc,
-                            reference_id: id,
-                            created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
-                        }])
+                            if (debtError) throw new Error(`Failed to add agent debt: ${debtError.message}`)
+
+                            await supabase.from('credit_transactions').insert([{
+                                agent_id: newAgentId,
+                                amount: newPrice,
+                                transaction_type: 'BOOKING_DEDUCTION',
+                                description: transactionDesc,
+                                reference_id: id,
+                                created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
+                            }])
+                        }
                     }
                 }
             }
@@ -715,6 +737,8 @@ export async function updateBooking(id: string, formData: BookingFormData) {
     revalidatePath('/dashboard/bookings')
     revalidatePath('/dashboard')
     revalidatePath('/dashboard/payments')
+    revalidatePath('/dashboard/analytics')
+    revalidatePath('/dashboard/reports')
 }
 
 
