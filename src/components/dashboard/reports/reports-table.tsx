@@ -24,7 +24,7 @@ export interface TicketReportRow {
     sale_price: number;
     booking: {
         pnr: string;
-        entry_date: string;
+        status_date: string;
         airline: string;
         booking_source: string;
         platform: string;
@@ -95,7 +95,7 @@ export function ReportsTable({ tickets }: ReportsTableProps) {
                                 <TableCell className="font-medium text-slate-700 dark:text-slate-300">
                                     {ticket.booking?.pnr}
                                 </TableCell>
-                                <TableCell className="text-slate-500">{new Date(ticket.booking?.entry_date).toLocaleDateString()}</TableCell>
+                                <TableCell className="text-slate-500">{ticket.booking?.status_date ? new Date(ticket.booking.status_date).toLocaleDateString() : 'N/A'}</TableCell>
                                 <TableCell className="font-medium">
                                     <div className="flex flex-col">
                                         <span className="truncate max-w-[180px]" title={`${ticket.title || ''} ${ticket.first_name || ''} ${ticket.surname || ''}`}>

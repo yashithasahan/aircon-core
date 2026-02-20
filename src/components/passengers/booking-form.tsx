@@ -71,6 +71,7 @@ const passengerSchema = z.object({
     refund_amount_partner: z.coerce.number().optional(),
     refund_amount_customer: z.coerce.number().optional(),
     refund_date: z.string().optional(),
+    void_date: z.string().optional(),
 })
 
 const bookingFormSchema = z.object({
@@ -105,6 +106,10 @@ const bookingFormSchema = z.object({
     refund_date: z.string().optional(),
     actual_refund_amount: z.coerce.number().optional(),
     customer_refund_amount: z.coerce.number().optional(),
+
+    // Void
+    void_date: z.string().optional(),
+
     payment_method: z.enum(["Easy Pay", "Credit Card"]).optional(),
     currency: z.enum(["EUR", "LKR"]).default("EUR"),
     parent_booking_id: z.string().optional(),
@@ -115,6 +120,15 @@ const bookingFormSchema = z.object({
             code: z.ZodIssueCode.custom,
             message: "Refund date is required when status is Refunded",
             path: ["refund_date"]
+        });
+    }
+
+    // If ticket status is VOID, require void date
+    if (data.ticket_status === 'VOID' && !data.void_date) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Void date is required when status is Void",
+            path: ["void_date"]
         });
     }
 
@@ -197,6 +211,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
             refund_amount_partner: Number(p.refund_amount_partner) || 0,
             refund_amount_customer: Number(p.refund_amount_customer) || 0,
             refund_date: p.refund_date ? p.refund_date.split('T')[0] : "",
+            void_date: p.void_date ? p.void_date.split('T')[0] : "",
         }))
         : [{
             // Fallback for old data or new booking
@@ -243,6 +258,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
         refund_date: initialData?.refund_date ? initialData.refund_date.split('T')[0] : "",
         actual_refund_amount: initialData?.actual_refund_amount || 0,
         customer_refund_amount: initialData?.customer_refund_amount || 0,
+        void_date: initialData?.void_date ? initialData.void_date.split('T')[0] : "",
         payment_method: initialData?.payment_method || "Easy Pay",
         currency: initialData?.currency || "EUR",
         parent_booking_id: parentBooking?.id || initialData?.parent_booking_id || "",
@@ -355,8 +371,8 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                 fare: totalFare,
                 selling_price: totalSellingPrice,
                 advance_payment: Number(data.advance_payment || 0),
-                actual_refund_amount: Number(data.actual_refund_amount || 0),
                 customer_refund_amount: Number(data.customer_refund_amount || 0),
+                void_date: data.void_date || null
             }
 
             if (bookingId) {
@@ -423,12 +439,42 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                             <FormItem>
                                 <FormLabel>Booking Date</FormLabel>
                                 <FormControl>
-                                    <Input type="date" {...field} value={field.value as string} />
+                                    <Input type="date" {...field} value={field.value as string} disabled={ticketStatus !== 'PENDING'} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
                         )}
                     />
+                    {ticketStatus === 'VOID' && (
+                        <FormField<BookingFormValues>
+                            control={control}
+                            name="void_date"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Void Date</FormLabel>
+                                    <FormControl>
+                                        <Input type="date" {...field} value={field.value as string} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
+                    {ticketStatus === 'REFUNDED' && (
+                        <FormField<BookingFormValues>
+                            control={control}
+                            name="refund_date"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Refund Date</FormLabel>
+                                    <FormControl>
+                                        <Input type="date" {...field} value={field.value as string} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
                     <FormField<BookingFormValues>
                         control={control}
                         name="airline"
@@ -791,6 +837,25 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                     </div>
                                 )}
 
+                                {/* Row 3.5: Void Details (Conditional) */}
+                                {watch(`passengers.${index}.ticket_status`) === 'VOID' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-orange-50 dark:bg-orange-900/10 rounded-lg border border-orange-100 dark:border-orange-900/20 mb-4">
+                                        <FormField
+                                            control={control}
+                                            name={`passengers.${index}.void_date`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Void Date</FormLabel>
+                                                    <FormControl>
+                                                        <Input type="date" {...field} value={field.value as string} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </div>
+                                )}
+
                                 {/* Row 4: Passport Information & Contact */}
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                     <FormField
@@ -1070,7 +1135,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                             <FormItem><FormLabel>Advance</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
                         )} />
                         <FormField control={control} name="ticket_issued_date" render={({ field }) => (
-                            <FormItem><FormLabel>Issued Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
+                            <FormItem><FormLabel>Issued Date</FormLabel><FormControl><Input type="date" {...field} value={field.value as string} disabled={ticketStatus !== 'ISSUED' && ticketStatus !== 'REISSUE'} /></FormControl><FormMessage /></FormItem>
                         )} />
                     </div >
                 </div >

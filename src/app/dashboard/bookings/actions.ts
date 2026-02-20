@@ -19,6 +19,19 @@ export async function createBooking(formData: BookingFormData) {
         formData.ticket_status = 'REISSUE' as any;
     }
 
+    // Determine status_date based on ticket_status priority
+    let statusDate = formData.entry_date;
+    if (formData.ticket_status === 'ISSUED' || formData.ticket_status === 'REISSUE') {
+        statusDate = formData.ticket_issued_date || formData.entry_date;
+    } else if (formData.ticket_status === 'REFUNDED') {
+        const paxRefundDate = formData.passengers?.find(p => p.ticket_status === 'REFUNDED' && p.refund_date)?.refund_date;
+        statusDate = paxRefundDate || formData.refund_date || formData.ticket_issued_date || formData.entry_date;
+    } else if (formData.ticket_status === 'VOID') {
+        const paxVoidDate = formData.passengers?.find(p => p.ticket_status === 'VOID' && p.void_date)?.void_date;
+        statusDate = paxVoidDate || formData.void_date || formData.ticket_issued_date || formData.entry_date;
+    }
+
+
     // Construct display strings
     // pax_name: "Title First Surname, Title First Surname"
     const paxNameDisplay = formData.passengers?.map(p => {
@@ -81,7 +94,7 @@ export async function createBooking(formData: BookingFormData) {
                 transaction_type: 'BOOKING_DEDUCTION',
                 description: transactionDesc,
                 reference_id: null,
-                created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
+                created_at: new Date(statusDate).toISOString()
             }])
         }
 
@@ -107,7 +120,7 @@ export async function createBooking(formData: BookingFormData) {
                     transaction_type: 'BOOKING_DEDUCTION',
                     description: transactionDesc,
                     reference_id: null,
-                    created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
+                    created_at: new Date(statusDate).toISOString()
                 }])
             }
         }
@@ -147,10 +160,13 @@ export async function createBooking(formData: BookingFormData) {
                 actual_refund_amount: formData.actual_refund_amount,
                 customer_refund_amount: formData.customer_refund_amount,
 
+                void_date: formData.void_date || null,
+
                 payment_method: formData.payment_method || null,
                 currency: formData.currency || 'EUR',
                 parent_booking_id: formData.parent_booking_id || null,
-                booking_type: formData.booking_type || 'ORIGINAL'
+                booking_type: formData.booking_type || 'ORIGINAL',
+                status_date: statusDate
             }
         ])
         .select()
@@ -271,6 +287,15 @@ export async function updateBooking(id: string, formData: BookingFormData) {
     const totalFare = formData.passengers?.reduce((sum, p) => p.ticket_status === 'VOID' ? sum : sum + (Number(p.cost_price) || 0), 0) || 0;
     const totalSellingPrice = formData.passengers?.reduce((sum, p) => p.ticket_status === 'VOID' ? sum : sum + (Number(p.sale_price) || 0), 0) || 0;
 
+    // Determine status_date based on ticket_status priority
+    let statusDate = formData.entry_date;
+    if (formData.ticket_status === 'ISSUED' || formData.ticket_status === 'REISSUE') {
+        statusDate = formData.ticket_issued_date || formData.entry_date;
+    } else if (formData.ticket_status === 'REFUNDED') {
+        const paxRefundDate = formData.passengers?.find(p => p.ticket_status === 'REFUNDED' && p.refund_date)?.refund_date;
+        statusDate = paxRefundDate || formData.refund_date || formData.ticket_issued_date || formData.entry_date;
+    }
+
     const paxNameDisplay = formData.passengers?.map(p => {
         return (p.first_name || p.surname) ? `${p.title || ''} ${p.first_name || ''} ${p.surname || ''}`.trim() : 'Unknown';
     }).join(', ') || 'Unknown';
@@ -340,7 +365,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                 !isStatusChanged && !isAmountChanged && !isAgentChanged && !isPartnerChanged;
 
             if (isOnlyDateChange) {
-                const newDate = new Date(formData.ticket_issued_date || formData.entry_date).toISOString();
+                const newDate = new Date(statusDate).toISOString();
                 const { error: dateUpdateError } = await supabase
                     .from('credit_transactions')
                     .update({ created_at: newDate })
@@ -356,6 +381,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
 
                 // Step A: REVERSE Old Transaction (if it was Billable ie ISSUED or REFUNDED)
                 if (wasBillable) {
+                    const oldStatusDate = currentBooking.status_date || currentBooking.ticket_issued_date || currentBooking.entry_date;
                     // 1. Reverse Issued Partner (Refund)
                     if (currentBooking.issued_partner_id) {
                         const { data: oldPartner } = await supabase
@@ -379,7 +405,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                                 transaction_type: 'REFUND', // or REVERSAL
                                 description: `Update Reversal for PNR ${currentBooking.pnr}`,
                                 reference_id: id,
-                                created_at: new Date(currentBooking.ticket_issued_date || currentBooking.entry_date).toISOString()
+                                created_at: new Date(oldStatusDate).toISOString()
                             }])
                         }
                     }
@@ -407,7 +433,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                                 transaction_type: 'REFUND',
                                 description: `Update Reversal for PNR ${currentBooking.pnr}`,
                                 reference_id: id,
-                                created_at: new Date(currentBooking.ticket_issued_date || currentBooking.entry_date).toISOString()
+                                created_at: new Date(oldStatusDate).toISOString()
                             }])
                         }
                     }
@@ -446,7 +472,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                                 transaction_type: 'BOOKING_DEDUCTION',
                                 description: transactionDesc,
                                 reference_id: id,
-                                created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
+                                created_at: new Date(statusDate).toISOString()
                             }])
                         }
                     }
@@ -476,7 +502,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                                 transaction_type: 'BOOKING_DEDUCTION',
                                 description: transactionDesc,
                                 reference_id: id,
-                                created_at: new Date(formData.ticket_issued_date || formData.entry_date).toISOString()
+                                created_at: new Date(statusDate).toISOString()
                             }])
                         }
                     }
@@ -608,6 +634,22 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                             created_at: timestamp
                         });
                     }
+                } else if (pax.ticket_status === 'VOID') {
+                    const oldPax = (currentBooking as any).passengers?.find((op: any) =>
+                        (pax.ticket_number && op.ticket_number === pax.ticket_number) ||
+                        (op.first_name === pax.first_name && op.surname === pax.surname)
+                    );
+
+                    if (!oldPax || oldPax.ticket_status !== 'VOID') {
+                        historyEntries.push({
+                            booking_id: id,
+                            action: 'TICKET_VOID',
+                            previous_status: oldPax?.ticket_status || 'ISSUED',
+                            new_status: 'VOID',
+                            details: `Ticket ${pax.ticket_number} (${pax.first_name} ${pax.surname}) marked as VOID`,
+                            created_at: timestamp
+                        });
+                    }
                 }
             }
         }
@@ -660,8 +702,11 @@ export async function updateBooking(id: string, formData: BookingFormData) {
             actual_refund_amount: totalRefundPartner,
             customer_refund_amount: totalRefundCustomer,
 
+            void_date: formData.void_date || null,
+
             payment_method: formData.payment_method || null,
-            booking_type: formData.booking_type || 'ORIGINAL'
+            booking_type: formData.booking_type || 'ORIGINAL',
+            status_date: statusDate
         })
         .eq('id', id)
 
@@ -701,6 +746,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                 refund_amount_partner: Number(p.refund_amount_partner) || 0,
                 refund_amount_customer: Number(p.refund_amount_customer) || 0,
                 refund_date: p.refund_date ? new Date(p.refund_date).toISOString() : null,
+                void_date: p.void_date ? new Date(p.void_date).toISOString() : null,
                 phone_number: p.phone_number,
                 contact_info: p.contact_info
             }));
@@ -794,11 +840,11 @@ export async function getBookings(filters: BookingFilters | string = {}) {
     }
 
     if (startDate) {
-        dbQuery = dbQuery.gte('entry_date', startDate)
+        dbQuery = dbQuery.gte('status_date', startDate)
     }
 
     if (endDate) {
-        dbQuery = dbQuery.lte('entry_date', endDate)
+        dbQuery = dbQuery.lte('status_date', endDate)
     }
 
     if (agentId && agentId !== 'ALL') {
@@ -816,7 +862,7 @@ export async function getBookings(filters: BookingFilters | string = {}) {
         dbQuery = dbQuery.range(from, to);
     }
 
-    const { data, error, count } = await dbQuery.order('entry_date', { ascending: false })
+    const { data, error, count } = await dbQuery.order('status_date', { ascending: false })
 
     if (error) {
         console.error('Fetch error in getBookings:', error)
@@ -876,11 +922,11 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
     }
 
     if (startDate) {
-        dbQuery = dbQuery.gte('booking.entry_date', startDate)
+        dbQuery = dbQuery.gte('booking.status_date', startDate)
     }
 
     if (endDate) {
-        dbQuery = dbQuery.lte('booking.entry_date', endDate)
+        dbQuery = dbQuery.lte('booking.status_date', endDate)
     }
 
     if (agentId && agentId !== 'ALL') {
@@ -918,7 +964,7 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
         dbQuery = dbQuery.range(from, to);
     }
 
-    const { data, error, count } = await dbQuery.order('created_at', { ascending: false, foreignTable: 'booking' }) // Sort by booking date
+    const { data, error, count } = await dbQuery.order('status_date', { ascending: false, foreignTable: 'booking' }) // Sort by logical status date
 
     if (error) {
         console.error('Fetch error in getTicketReport:', error)

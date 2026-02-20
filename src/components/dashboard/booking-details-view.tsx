@@ -84,7 +84,7 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                             {booking.ticket_status || 'PENDING'}
                         </Badge>
                     </div>
-                    <p className="text-slate-500 text-sm">Created on {new Date(booking.entry_date).toLocaleDateString()}</p>
+                    <p className="text-slate-500 text-sm">Date: {new Date(booking.status_date || booking.entry_date).toLocaleDateString()}</p>
                 </div>
                 <Button onClick={() => setIsEditOpen(true)}>
                     <Pencil className="mr-2 h-4 w-4" /> Edit Booking
