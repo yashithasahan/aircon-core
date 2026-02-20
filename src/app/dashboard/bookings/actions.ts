@@ -49,7 +49,8 @@ export async function createBooking(formData: BookingFormData) {
     // We can add a check later if needed.
 
     // 3. Check for Duplicate PNR + Status combo (on Bookings table)
-    if (formData.pnr) {
+    // Allow multiple REISSUEs for the same PNR (a ticket can be reissued multiple times)
+    if (formData.pnr && formData.ticket_status !== 'REISSUE') {
         const { data: existingPnrBookings } = await supabase
             .from('bookings')
             .select('id')
@@ -903,6 +904,10 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
             booking:bookings!inner(
                 pnr,
                 entry_date,
+                status_date,
+                ticket_issued_date,
+                refund_date,
+                void_date,
                 airline,
                 ticket_status,
                 booking_source,
