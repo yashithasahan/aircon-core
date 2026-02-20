@@ -44,7 +44,11 @@ export function ExportButton({ filters }: ExportButtonProps) {
 
                 return {
                     "PNR": ticket.booking?.pnr,
-                    "Date": ticket.booking?.status_date ? format(new Date(ticket.booking.status_date), 'yyyy-MM-dd') : '',
+                    "Date": ticket.booking?.status_date
+                        ? format(new Date(ticket.booking.status_date), 'yyyy-MM-dd')
+                        : (ticket.booking?.ticket_issued_date || ticket.booking?.entry_date
+                            ? format(new Date(ticket.booking?.ticket_issued_date || ticket.booking?.entry_date), 'yyyy-MM-dd')
+                            : ''),
                     "Passenger": `${ticket.title || ''} ${ticket.first_name || ''} ${ticket.surname || ''}`.trim(),
                     "Ticket Number": ticket.ticket_number,
                     "Status": status,
