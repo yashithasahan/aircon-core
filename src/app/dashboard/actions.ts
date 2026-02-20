@@ -18,8 +18,8 @@ export async function getDashboardStats(dateStr?: string) {
     const { data: bookings, error } = await supabase
         .from('bookings')
         .select('selling_price, profit, id')
-        .gte('ticket_issued_date', startOfMonth.toISOString())
-        .lt('ticket_issued_date', endOfMonth.toISOString())
+        .gte('status_date', startOfMonth.toISOString())
+        .lt('status_date', endOfMonth.toISOString())
         .neq('currency', 'LKR')
         .eq('is_deleted', false)
 
@@ -61,9 +61,9 @@ export async function getRecentSales(dateStr?: string) {
         .select('*')
         .neq('currency', 'LKR')
         .eq('is_deleted', false)
-        .gte('ticket_issued_date', startOfMonth.toISOString())
-        .lt('ticket_issued_date', endOfMonth.toISOString())
-        .order('ticket_issued_date', { ascending: false })
+        .gte('status_date', startOfMonth.toISOString())
+        .lt('status_date', endOfMonth.toISOString())
+        .order('status_date', { ascending: false })
         .limit(5)
 
     if (error) {
@@ -98,8 +98,8 @@ export async function getAgentCreditStats(dateStr?: string) {
             .select('*', { count: 'exact', head: true }) // count only
             .eq('issued_partner_id', type.id)
             .eq('ticket_status', 'ISSUED')
-            .gte('ticket_issued_date', startOfMonth.toISOString())
-            .lt('ticket_issued_date', endOfMonth.toISOString())
+            .gte('status_date', startOfMonth.toISOString())
+            .lt('status_date', endOfMonth.toISOString())
             .neq('currency', 'LKR')
             .eq('is_deleted', false)
 

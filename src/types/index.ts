@@ -46,11 +46,15 @@ export interface Booking {
     platform?: string;
     payment_method?: string; // e.g. 'Easy Pay', 'Credit Card'
     currency?: 'EUR' | 'LKR';
+    status_date?: string;
 
     // Refund fields
     refund_date?: string;
     actual_refund_amount?: number;
     customer_refund_amount?: number;
+
+    // Void field
+    void_date?: string;
 
     // Existing fields
     origin?: string;
@@ -102,6 +106,7 @@ export interface PassengerDetail {
     refund_amount_partner?: number;
     refund_amount_customer?: number;
     refund_date?: string;
+    void_date?: string;
     phone_number?: string;
     contact_info?: string;
 }

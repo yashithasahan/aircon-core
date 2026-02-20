@@ -48,7 +48,7 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
     // Base query for Bookings (Financials)
     let bookingQuery = supabase
         .from('bookings')
-        .select('selling_price, profit, fare, ticket_issued_date, platform, airline, ticket_status, issued_partner:issued_partners(name)')
+        .select('selling_price, profit, fare, status_date, platform, airline, ticket_status, issued_partner:issued_partners(name)')
         .eq('is_deleted', false)
 
     // Base query for Tickets (Counts)
@@ -57,7 +57,7 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
         .select(`
             id,
             booking:bookings!inner(
-                ticket_issued_date,
+                status_date,
                 platform,
                 airline,
                 issued_partner:issued_partners(name),
@@ -72,8 +72,8 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
     const { startDate, endDate, status, platform, airline, agentId, issuedPartnerId } = filters;
 
     // Apply to Booking Query
-    if (startDate) bookingQuery = bookingQuery.gte('ticket_issued_date', startDate);
-    if (endDate) bookingQuery = bookingQuery.lte('ticket_issued_date', endDate);
+    if (startDate) bookingQuery = bookingQuery.gte('status_date', startDate);
+    if (endDate) bookingQuery = bookingQuery.lte('status_date', endDate);
     if (status && status !== 'ALL') bookingQuery = bookingQuery.eq('ticket_status', status);
     if (platform && platform !== 'ALL') bookingQuery = bookingQuery.eq('platform', platform);
     if (airline) bookingQuery = bookingQuery.ilike('airline', `%${airline}%`);
@@ -81,8 +81,8 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
     if (issuedPartnerId && issuedPartnerId !== 'ALL') bookingQuery = bookingQuery.eq('issued_partner_id', issuedPartnerId);
 
     // Apply to Ticket Query (Inner Join Filters)
-    if (startDate) ticketQuery = ticketQuery.gte('booking.ticket_issued_date', startDate);
-    if (endDate) ticketQuery = ticketQuery.lte('booking.ticket_issued_date', endDate);
+    if (startDate) ticketQuery = ticketQuery.gte('booking.status_date', startDate);
+    if (endDate) ticketQuery = ticketQuery.lte('booking.status_date', endDate);
     if (status && status !== 'ALL') ticketQuery = ticketQuery.eq('booking.ticket_status', status);
     if (platform && platform !== 'ALL') ticketQuery = ticketQuery.eq('booking.platform', platform);
     if (airline) ticketQuery = ticketQuery.ilike('booking.airline', `%${airline}%`);
@@ -131,14 +131,14 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
 
     // Process Tickets for Count Trend
     tickets?.forEach((t: any) => {
-        const date = t.booking?.ticket_issued_date ? t.booking.ticket_issued_date.split('T')[0] : 'Unknown';
+        const date = t.booking?.status_date ? t.booking.status_date.split('T')[0] : 'Unknown';
         if (!trendMap.has(date)) trendMap.set(date, { ticketsCount: 0, revenue: 0, profit: 0 });
         trendMap.get(date)!.ticketsCount += 1;
     });
 
     // Process Bookings for Revenue Trend
     bookings?.forEach(b => {
-        const date = b.ticket_issued_date ? b.ticket_issued_date.split('T')[0] : 'Unknown';
+        const date = b.status_date ? b.status_date.split('T')[0] : 'Unknown';
         if (!trendMap.has(date)) trendMap.set(date, { ticketsCount: 0, revenue: 0, profit: 0 });
         const revenue = Number(b.selling_price) || 0;
         const profit = Number(b.profit) || 0;
@@ -226,8 +226,8 @@ export async function getAgentPerformanceReport(filters: BookingFilters): Promis
         // .eq('booking_source', 'AGENT') // booking_source is usually AGENT but can be others? 
         .not('agent_id', 'is', null)
 
-    if (filters.startDate) query = query.gte('entry_date', filters.startDate)
-    if (filters.endDate) query = query.lte('entry_date', filters.endDate)
+    if (filters.startDate) query = query.gte('status_date', filters.startDate)
+    if (filters.endDate) query = query.lte('status_date', filters.endDate)
 
     const { data: bookings } = await query
 
@@ -289,8 +289,8 @@ export async function getIssuedPartnerPerformance(filters: BookingFilters): Prom
         .eq('is_deleted', false)
         .not('issued_partner_id', 'is', null)
 
-    if (filters.startDate) query = query.gte('entry_date', filters.startDate)
-    if (filters.endDate) query = query.lte('entry_date', filters.endDate)
+    if (filters.startDate) query = query.gte('status_date', filters.startDate)
+    if (filters.endDate) query = query.lte('status_date', filters.endDate)
     // Cost usually applies to ISSUED tickets
     query = query.eq('ticket_status', 'ISSUED')
 
@@ -335,7 +335,7 @@ export async function getEntityAnalytics(
 
     let query = supabase
         .from('bookings')
-        .select('airline, ticket_status, entry_date')
+        .select('airline, ticket_status, status_date')
         .eq('is_deleted', false)
 
     if (type === 'AGENT') {
@@ -344,8 +344,8 @@ export async function getEntityAnalytics(
         query = query.eq('issued_partner_id', id)
     }
 
-    if (filters.startDate) query = query.gte('entry_date', filters.startDate)
-    if (filters.endDate) query = query.lte('entry_date', filters.endDate)
+    if (filters.startDate) query = query.gte('status_date', filters.startDate)
+    if (filters.endDate) query = query.lte('status_date', filters.endDate)
 
     const { data: bookings } = await query
 
@@ -376,7 +376,7 @@ export async function getEntityAnalytics(
     // 3. Monthly Trend
     const trendMap = new Map<string, number>()
     bookings.forEach(b => {
-        const date = b.entry_date
+        const date = b.status_date
         if (date) {
             trendMap.set(date, (trendMap.get(date) || 0) + 1)
         }

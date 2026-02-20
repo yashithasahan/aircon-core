@@ -108,7 +108,7 @@ export function BookingsTable({ bookings, passengers = [], agents = [], issuedPa
                                         </div>
                                     </TableCell>
                                     <TableCell className="font-medium text-xs text-slate-500">
-                                        {new Date(booking.entry_date).toLocaleDateString()}
+                                        {booking.status_date ? new Date(booking.status_date).toLocaleDateString() : 'N/A'}
                                     </TableCell>
                                     <TableCell className="whitespace-normal min-w-[150px]">
                                         <div className="flex items-center gap-2">
