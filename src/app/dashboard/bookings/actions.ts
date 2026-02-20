@@ -63,12 +63,16 @@ export async function createBooking(formData: BookingFormData) {
     }
 
     // 4. Credit Check & Deduction / Debt Accumulation (Using TOTALS)
+    const transactionsToInsert: any[] = [];
+    let updatedPartnerBalance: number | null = null;
+    let updatedAgentBalance: number | null = null;
+    const transactionDesc = (formData.ticket_status === 'REISSUE' || formData.booking_type === 'REISSUE')
+        ? `Booking Re-issuance for PNR ${formData.pnr}`
+        : `Booking issuance for PNR ${formData.pnr}`;
+
     if (['ISSUED', 'REFUNDED', 'REISSUE'].includes(formData.ticket_status || '') && formData.currency !== 'LKR') {
         const cost = totalFare;
         const price = totalSellingPrice;
-
-        const isReissue = formData.ticket_status === 'REISSUE' || formData.booking_type === 'REISSUE';
-        const transactionDesc = isReissue ? `Booking Re-issuance for PNR ${formData.pnr}` : `Booking issuance for PNR ${formData.pnr}`;
 
         // A. Issuing Partner Logic
         if (formData.issued_partner_id) {
@@ -80,22 +84,16 @@ export async function createBooking(formData: BookingFormData) {
 
             if (btError || !issuedPartner) throw new Error('Invalid Issued Partner.')
 
-            const newBalance = Number(issuedPartner.balance) - cost
-            const { error: balError } = await supabase
-                .from('issued_partners')
-                .update({ balance: newBalance })
-                .eq('id', formData.issued_partner_id)
+            updatedPartnerBalance = Number(issuedPartner.balance) - cost
 
-            if (balError) throw new Error('Failed to update credit balance.')
-
-            await supabase.from('credit_transactions').insert([{
+            transactionsToInsert.push({
                 issued_partner_id: formData.issued_partner_id,
                 amount: -cost,
                 transaction_type: 'BOOKING_DEDUCTION',
                 description: transactionDesc,
                 reference_id: null,
                 created_at: new Date(statusDate).toISOString()
-            }])
+            });
         }
 
         // B. Agent Logic
@@ -107,26 +105,22 @@ export async function createBooking(formData: BookingFormData) {
                 .single()
 
             if (!agError && agent) {
-                const newAgentBalance = Number(agent.balance) + price;
+                updatedAgentBalance = Number(agent.balance) + price;
 
-                await supabase
-                    .from('agents')
-                    .update({ balance: newAgentBalance })
-                    .eq('id', formData.agent_id)
-
-                await supabase.from('credit_transactions').insert([{
+                transactionsToInsert.push({
                     agent_id: formData.agent_id,
                     amount: price,
                     transaction_type: 'BOOKING_DEDUCTION',
                     description: transactionDesc,
                     reference_id: null,
                     created_at: new Date(statusDate).toISOString()
-                }])
+                });
             }
         }
     }
 
     // 5. Insert Booking Header
+    // We do this FIRST so if it fails (e.g. missing column), we haven't touched the balances yet.
     const { data: booking, error } = await supabase
         .from('bookings')
         .insert([
@@ -160,6 +154,7 @@ export async function createBooking(formData: BookingFormData) {
                 actual_refund_amount: formData.actual_refund_amount,
                 customer_refund_amount: formData.customer_refund_amount,
 
+                // It will fail right here if `void_date` is missing from the DB
                 void_date: formData.void_date || null,
 
                 payment_method: formData.payment_method || null,
@@ -174,7 +169,26 @@ export async function createBooking(formData: BookingFormData) {
 
     if (error || !booking) {
         console.error('Error creating booking:', error)
-        throw new Error('Failed to create booking')
+        throw new Error(`Failed to create booking: ${error?.message || 'Unknown database error'}`)
+    }
+
+    // 5.5 If Booking succeeds, NOW safely execute the financial transactions
+    if (updatedPartnerBalance !== null && formData.issued_partner_id) {
+        await supabase
+            .from('issued_partners')
+            .update({ balance: updatedPartnerBalance })
+            .eq('id', formData.issued_partner_id);
+    }
+
+    if (updatedAgentBalance !== null && formData.agent_id) {
+        await supabase
+            .from('agents')
+            .update({ balance: updatedAgentBalance })
+            .eq('id', formData.agent_id);
+    }
+
+    if (transactionsToInsert.length > 0) {
+        await supabase.from('credit_transactions').insert(transactionsToInsert);
     }
 
     // 6. Insert Passengers
