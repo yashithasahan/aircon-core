@@ -164,7 +164,7 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
                                                         label = 'UPDATE';
                                                     } else {
                                                         // Generic Refund
-                                                        badgeColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
+                                                        badgeColor = 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400';
                                                         label = 'REFUND';
                                                     }
                                                 }

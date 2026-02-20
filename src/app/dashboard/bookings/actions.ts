@@ -189,7 +189,8 @@ export async function createBooking(formData: BookingFormData) {
     }
 
     if (transactionsToInsert.length > 0) {
-        await supabase.from('credit_transactions').insert(transactionsToInsert);
+        const transactionsWithRef = transactionsToInsert.map(t => ({ ...t, reference_id: booking.id }));
+        await supabase.from('credit_transactions').insert(transactionsWithRef);
     }
 
     // 6. Insert Passengers
@@ -350,14 +351,12 @@ export async function updateBooking(id: string, formData: BookingFormData) {
         const isPartnerChanged = currentBooking.issued_partner_id !== (formData.issued_partner_id || null);
 
         // Helper to compare dates (string vs Date object normalization)
-        const normalizeDate = (d: string | null) => d ? new Date(d).toISOString().split('T')[0] : null; // Compare YYYY-MM-DD for safety, or full ISO if time matters?
-        // Actually ticket_issued_date might be full timestamp. Let's compare limits.
+        const normalizeDate = (d: string | null) => d ? new Date(d).toISOString().split('T')[0] : null;
         const isDateDifferent = (d1: string | null, d2: string | null) => {
-            if (!d1 && !d2) return false;
-            if (!d1 || !d2) return true;
-            return new Date(d1).getTime() !== new Date(d2).getTime();
+            return normalizeDate(d1) !== normalizeDate(d2);
         }
-        const isDateChanged = isDateDifferent(currentBooking.ticket_issued_date, formData.ticket_issued_date || null);
+        const oldStatusDate = currentBooking.status_date || currentBooking.ticket_issued_date || currentBooking.entry_date;
+        const isDateChanged = isDateDifferent(oldStatusDate, statusDate);
 
         // A booking is "Billable" if it is ISSUED, REISSUE, or REFUNDED
         const isBillableStatus = (status: string) => ['ISSUED', 'REFUNDED', 'REISSUE'].includes(status);
@@ -999,8 +998,12 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
             processedData.push({
                 ...ticket,
                 id: `${ticket.id}_original`, // Unique Key
-                ticket_status: 'ISSUED', // Show as originally issued
-                // Keep original cost/sale price
+                ticket_status: ticket.booking?.booking_type === 'REISSUE' ? 'REISSUE' : 'ISSUED', // Show as originally issued/reissued
+                // Override the booking's status_date to point to the original issuance date, not the refund date
+                booking: {
+                    ...ticket.booking,
+                    status_date: ticket.booking?.ticket_issued_date || ticket.booking?.entry_date
+                }
             });
 
             // 2. The REFUND Entry (Negative Values)
