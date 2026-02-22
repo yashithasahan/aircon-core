@@ -704,7 +704,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                             <FormItem>
                                                 <FormLabel>Ticket Number</FormLabel>
                                                 <FormControl>
-                                                    <Input placeholder="176-" {...field} />
+                                                    <Input placeholder="176-" {...field} disabled={watch(`passengers.${index}.ticket_status`) === 'PENDING'} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -1022,7 +1022,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                         <Popover open={openPartnerCombobox} onOpenChange={setOpenPartnerCombobox}>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
-                                                    <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
+                                                    <Button variant="outline" role="combobox" disabled={ticketStatus === 'PENDING'} className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
                                                         <span className="truncate">
                                                             {field.value ? issuedPartners.find((t) => t.id === field.value)?.name : "Select..."}
                                                         </span>
