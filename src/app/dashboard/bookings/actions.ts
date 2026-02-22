@@ -982,7 +982,11 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
         dbQuery = dbQuery.range(from, to);
     }
 
-    const { data, error, count } = await dbQuery.order('status_date', { ascending: false, foreignTable: 'booking' }) // Sort by logical status date
+    // dbQuery.order('status_date', { ascending: false, foreignTable: 'booking' }) 
+    // ^ Supabase v2 JS cannot easily sort parent rows by joined columns natively without a view.
+    // Instead, we will order by id desc (newest first) to ensure pagination generally gets newest pages,
+    // and then precisely sort by the derived text date in JavaScript.
+    const { data, error, count } = await dbQuery.order('id', { ascending: false })
 
     if (error) {
         console.error('Fetch error in getTicketReport:', error)
@@ -1023,6 +1027,19 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
             // Normal Ticket
             processedData.push(ticket);
         }
+    });
+
+    // Ensure the final array is perfectly sorted by effective status_date descending
+    processedData.sort((a, b) => {
+        const dateA = new Date(a.booking?.status_date || 0).getTime();
+        const dateB = new Date(b.booking?.status_date || 0).getTime();
+        if (dateA === dateB) {
+            // Tie-breaker: put Refunds lower than Issues if they happened on the same day for the same ticket
+            if (a.ticket_status === 'REFUNDED' && b.ticket_status !== 'REFUNDED') return -1;
+            if (b.ticket_status === 'REFUNDED' && a.ticket_status !== 'REFUNDED') return 1;
+            return 0; // maintain sub-order
+        }
+        return dateB - dateA;
     });
 
     return { data: processedData, count: processedData.length } // Count is now virtual rows
