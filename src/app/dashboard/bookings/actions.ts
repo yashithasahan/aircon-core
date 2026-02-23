@@ -310,6 +310,8 @@ export async function updateBooking(id: string, formData: BookingFormData) {
     } else if (formData.ticket_status === 'REFUNDED') {
         const paxRefundDate = formData.passengers?.find(p => p.ticket_status === 'REFUNDED' && p.refund_date)?.refund_date;
         statusDate = paxRefundDate || formData.refund_date || formData.ticket_issued_date || formData.entry_date;
+    } else if (formData.ticket_status === 'VOID') {
+        statusDate = formData.void_date || currentBooking.status_date || formData.entry_date;
     }
 
     const paxNameDisplay = formData.passengers?.map(p => {
@@ -711,7 +713,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
             issued_partner_id: formData.issued_partner_id || null,
 
             ticket_status: formData.ticket_status,
-            ticket_issued_date: formData.ticket_issued_date || null,
+            ticket_issued_date: formData.ticket_issued_date || currentBooking.ticket_issued_date || (['VOID', 'REFUNDED'].includes(formData.ticket_status as string) && currentBooking.ticket_status === 'ISSUED' ? currentBooking.status_date : null),
             advance_payment: formData.advance_payment,
             platform: formData.platform,
 
