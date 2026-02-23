@@ -106,7 +106,7 @@ export function EntityDetailsSheet({
                                         <BarChart data={analytics.monthlyTrend}>
                                             <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                                             <Tooltip />
-                                            <Bar dataKey="value" fill="#82ca9d" name="Bookings" />
+                                            <Bar dataKey="value" fill="#82ca9d" name="Tickets" />
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>

@@ -85,7 +85,7 @@ export function IssuedPartnerTab({ data, filters = {}, issuedPartners = [] }: { 
                                     <XAxis type="number" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
                                     <YAxis dataKey="partnerName" type="category" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} width={100} />
                                     <Tooltip />
-                                    <Bar dataKey="totalBookings" fill="#82ca9d" radius={[0, 4, 4, 0]} name="Bookings" />
+                                    <Bar dataKey="totalBookings" fill="#82ca9d" radius={[0, 4, 4, 0]} name="Tickets" />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -105,7 +105,7 @@ export function IssuedPartnerTab({ data, filters = {}, issuedPartners = [] }: { 
                         <TableHeader>
                             <TableRow>
                                 <TableHead>Partner Name</TableHead>
-                                <TableHead className="text-right">Total Bookings</TableHead>
+                                <TableHead className="text-right">Total Tickets</TableHead>
                                 <TableHead className="text-right">Total Cost (Period)</TableHead>
                                 <TableHead className="text-right">Our Balance</TableHead>
                                 <TableHead className="text-right">Status</TableHead>
