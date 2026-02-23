@@ -502,7 +502,8 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                         currentPassengers.forEach((_, index) => {
                                             setValue(`passengers.${index}.ticket_status`, val as any);
                                             if (val === 'VOID') {
-                                                setValue(`passengers.${index}.void_date`, new Date().toISOString().split('T')[0]);
+                                                const originalDate = getValues('ticket_issued_date') || getValues('entry_date') || new Date().toISOString().split('T')[0];
+                                                setValue(`passengers.${index}.void_date`, originalDate);
                                             }
                                         });
                                     }
@@ -518,7 +519,8 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                     }
 
                                     if (val === 'VOID') {
-                                        setValue('void_date', new Date().toISOString().split('T')[0]);
+                                        const originalDate = getValues('ticket_issued_date') || getValues('entry_date') || new Date().toISOString().split('T')[0];
+                                        setValue('void_date', originalDate);
                                     }
                                 }} value={field.value as string} disabled={disableStatusChange || isReissueMode}>
                                     <FormControl>
