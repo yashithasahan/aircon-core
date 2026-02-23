@@ -39,10 +39,10 @@ export function OverviewTab({ summary }: { summary: AnalyticsSummary }) {
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Bookings</CardTitle>
+                        <CardTitle className="text-sm font-medium">Total Tickets</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{summary.totalBookings}</div>
+                        <div className="text-2xl font-bold">{summary.totalTickets}</div>
                         <p className="text-xs text-muted-foreground">
                             +12% from last month
                         </p>

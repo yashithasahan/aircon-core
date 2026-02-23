@@ -221,7 +221,7 @@ export async function getAgentPerformanceReport(filters: BookingFilters): Promis
     // 2. Fetch Bookings for these agents (filtered by date)
     let query = supabase
         .from('bookings')
-        .select('*')
+        .select('*, passengers:booking_passengers(count)')
         .eq('is_deleted', false)
         // .eq('booking_source', 'AGENT') // booking_source is usually AGENT but can be others? 
         .not('agent_id', 'is', null)
@@ -255,7 +255,8 @@ export async function getAgentPerformanceReport(filters: BookingFilters): Promis
     bookings.forEach(b => {
         const agent = agentMap.get(b.agent_id)
         if (agent) {
-            agent.totalBookings += 1 // This is still bookings count, maybe okay for agent performance? Or should be tickets?
+            const ticketCount = b.passengers?.[0]?.count || 1;
+            agent.totalBookings += ticketCount // totalBookings property now represents total tickets
             // Usually performance is financial, so revenue matters most.
             if (b.ticket_status === 'ISSUED') {
                 const revenue = Number(b.selling_price) || 0
@@ -285,7 +286,7 @@ export async function getIssuedPartnerPerformance(filters: BookingFilters): Prom
     // 2. Fetch Bookings for these partners
     let query = supabase
         .from('bookings')
-        .select('*')
+        .select('*, passengers:booking_passengers(count)')
         .eq('is_deleted', false)
         .not('issued_partner_id', 'is', null)
 
@@ -316,7 +317,8 @@ export async function getIssuedPartnerPerformance(filters: BookingFilters): Prom
     bookings.forEach(b => {
         const partner = partnerMap.get(b.issued_partner_id)
         if (partner) {
-            partner.totalBookings += 1
+            const ticketCount = b.passengers?.[0]?.count || 1;
+            partner.totalBookings += ticketCount // totalBookings property now represents total tickets
             partner.totalCost += (Number(b.fare) || 0)
         }
     })

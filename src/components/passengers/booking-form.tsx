@@ -453,7 +453,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                 <FormItem>
                                     <FormLabel>Void Date</FormLabel>
                                     <FormControl>
-                                        <Input type="date" {...field} value={field.value as string} />
+                                        <Input type="date" {...field} value={field.value as string} disabled />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -501,6 +501,9 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                     if (currentPassengers) {
                                         currentPassengers.forEach((_, index) => {
                                             setValue(`passengers.${index}.ticket_status`, val as any);
+                                            if (val === 'VOID') {
+                                                setValue(`passengers.${index}.void_date`, new Date().toISOString().split('T')[0]);
+                                            }
                                         });
                                     }
 
@@ -512,6 +515,10 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                         // Or enforce ORIGINAL for non-reissue status? 
                                         // Let's enforce it to keep data clean as per user intent "no longer needed this" (the manual override).
                                         setValue('booking_type', 'ORIGINAL');
+                                    }
+
+                                    if (val === 'VOID') {
+                                        setValue('void_date', new Date().toISOString().split('T')[0]);
                                     }
                                 }} value={field.value as string} disabled={disableStatusChange || isReissueMode}>
                                     <FormControl>
@@ -716,7 +723,12 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                         render={({ field }) => (
                                             <FormItem>
                                                 <FormLabel>Status</FormLabel>
-                                                <Select onValueChange={field.onChange} value={field.value} disabled={disableStatusChange || isReissueMode}>
+                                                <Select onValueChange={(val) => {
+                                                    field.onChange(val);
+                                                    if (val === 'VOID') {
+                                                        setValue(`passengers.${index}.void_date`, new Date().toISOString().split('T')[0]);
+                                                    }
+                                                }} value={field.value} disabled={disableStatusChange || isReissueMode}>
                                                     <FormControl>
                                                         <SelectTrigger>
                                                             <SelectValue placeholder="Status" />
@@ -847,7 +859,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                                 <FormItem>
                                                     <FormLabel>Void Date</FormLabel>
                                                     <FormControl>
-                                                        <Input type="date" {...field} value={field.value as string} />
+                                                        <Input type="date" {...field} value={field.value as string} disabled />
                                                     </FormControl>
                                                     <FormMessage />
                                                 </FormItem>

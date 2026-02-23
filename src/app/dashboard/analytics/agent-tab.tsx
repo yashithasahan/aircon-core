@@ -98,7 +98,7 @@ export function AgentTab({ data, filters = {}, agents = [] }: { data: AgentPerfo
                 <CardHeader>
                     <CardTitle>Agent Performance & Due Reports</CardTitle>
                     <CardDescription>
-                        Overview of agent bookings, profit, and outstanding balances.
+                        Overview of agent tickets, profit, and outstanding balances.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -106,7 +106,7 @@ export function AgentTab({ data, filters = {}, agents = [] }: { data: AgentPerfo
                         <TableHeader>
                             <TableRow>
                                 <TableHead>Agent Name</TableHead>
-                                <TableHead className="text-right">Total Bookings</TableHead>
+                                <TableHead className="text-right">Total Tickets</TableHead>
                                 <TableHead className="text-right">Total Revenue</TableHead>
                                 <TableHead className="text-right">Total Profit</TableHead>
                                 <TableHead className="text-right">Total Due (Balance)</TableHead>

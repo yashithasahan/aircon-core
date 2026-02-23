@@ -23,6 +23,14 @@ export async function getDashboardStats(dateStr?: string) {
         .neq('currency', 'LKR')
         .eq('is_deleted', false)
 
+    const { count: totalTickets, error: ticketError } = await supabase
+        .from('booking_passengers')
+        .select('id, booking:bookings!inner(status_date, is_deleted, currency)', { count: 'exact', head: true })
+        .gte('booking.status_date', startOfMonth.toISOString())
+        .lt('booking.status_date', endOfMonth.toISOString())
+        .neq('booking.currency', 'LKR')
+        .eq('booking.is_deleted', false)
+
     if (error) {
         console.error('Error fetching stats:', error)
         return {
@@ -35,7 +43,7 @@ export async function getDashboardStats(dateStr?: string) {
 
     const totalRevenue = bookings.reduce((sum, b) => sum + (b.selling_price || 0), 0)
     const totalProfit = bookings.reduce((sum, b) => sum + (b.profit || 0), 0)
-    const totalBookings = bookings.length
+    const totalBookings = totalTickets || 0
     const averageMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
 
     return {
@@ -94,14 +102,14 @@ export async function getAgentCreditStats(dateStr?: string) {
 
     const stats = await Promise.all(types.map(async (type) => {
         const { count, error: countError } = await supabase
-            .from('bookings')
-            .select('*', { count: 'exact', head: true }) // count only
-            .eq('issued_partner_id', type.id)
-            .eq('ticket_status', 'ISSUED')
-            .gte('status_date', startOfMonth.toISOString())
-            .lt('status_date', endOfMonth.toISOString())
-            .neq('currency', 'LKR')
-            .eq('is_deleted', false)
+            .from('booking_passengers')
+            .select('id, booking:bookings!inner(issued_partner_id, ticket_status, status_date, is_deleted, currency)', { count: 'exact', head: true }) // count only
+            .eq('booking.issued_partner_id', type.id)
+            .eq('booking.ticket_status', 'ISSUED')
+            .gte('booking.status_date', startOfMonth.toISOString())
+            .lt('booking.status_date', endOfMonth.toISOString())
+            .neq('booking.currency', 'LKR')
+            .eq('booking.is_deleted', false)
 
         return {
             ...type,

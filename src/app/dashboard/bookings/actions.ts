@@ -396,6 +396,9 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                 // Step A: REVERSE Old Transaction (if it was Billable ie ISSUED or REFUNDED)
                 if (wasBillable) {
                     const oldStatusDate = currentBooking.status_date || currentBooking.ticket_issued_date || currentBooking.entry_date;
+                    const isNewStatusVoid = formData.ticket_status === 'VOID';
+                    const reversalDate = isNewStatusVoid && formData.void_date ? new Date(formData.void_date).toISOString() : new Date(oldStatusDate).toISOString();
+
                     // 1. Reverse Issued Partner (Refund)
                     if (currentBooking.issued_partner_id) {
                         const { data: oldPartner } = await supabase
@@ -419,7 +422,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                                 transaction_type: 'REFUND', // or REVERSAL
                                 description: `Update Reversal for PNR ${currentBooking.pnr}`,
                                 reference_id: id,
-                                created_at: new Date(oldStatusDate).toISOString()
+                                created_at: reversalDate
                             }])
                         }
                     }
@@ -447,7 +450,7 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                                 transaction_type: 'REFUND',
                                 description: `Update Reversal for PNR ${currentBooking.pnr}`,
                                 reference_id: id,
-                                created_at: new Date(oldStatusDate).toISOString()
+                                created_at: reversalDate
                             }])
                         }
                     }
@@ -997,31 +1000,37 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
     const processedData: any[] = [];
 
     (data as any[]).forEach(ticket => {
-        if (ticket.ticket_status === 'REFUNDED') {
+        if (ticket.ticket_status === 'REFUNDED' || ticket.ticket_status === 'VOID') {
+            const isVoid = ticket.ticket_status === 'VOID';
+
             // 1. The Original ISSUED Entry
             processedData.push({
                 ...ticket,
                 id: `${ticket.id}_original`, // Unique Key
                 ticket_status: ticket.booking?.booking_type === 'REISSUE' ? 'REISSUE' : 'ISSUED', // Show as originally issued/reissued
-                // Override the booking's status_date to point to the original issuance date, not the refund date
+                // Override the booking's status_date to point to the original issuance date, not the refund/void date
                 booking: {
                     ...ticket.booking,
                     status_date: ticket.booking?.ticket_issued_date || ticket.booking?.entry_date
                 }
             });
 
-            // 2. The REFUND Entry (Negative Values)
+            // 2. The REFUND/VOID Entry (Negative Values)
             // Use refund amounts if available, otherwise fallback to reversing original (assuming full refund if not specified)
-            const refundCost = Number(ticket.refund_amount_partner) > 0 ? Number(ticket.refund_amount_partner) : Number(ticket.cost_price);
-            const refundSell = Number(ticket.refund_amount_customer) > 0 ? Number(ticket.refund_amount_customer) : Number(ticket.sale_price);
+            const refundCost = isVoid ? Number(ticket.cost_price) : (Number(ticket.refund_amount_partner) > 0 ? Number(ticket.refund_amount_partner) : Number(ticket.cost_price));
+            const refundSell = isVoid ? Number(ticket.sale_price) : (Number(ticket.refund_amount_customer) > 0 ? Number(ticket.refund_amount_customer) : Number(ticket.sale_price));
 
             processedData.push({
                 ...ticket,
-                id: `${ticket.id}_refund`, // Unique Key
-                ticket_status: 'REFUNDED',
+                id: `${ticket.id}_${isVoid ? 'void' : 'refund'}`, // Unique Key
+                ticket_status: isVoid ? 'VOID' : 'REFUNDED',
                 cost_price: -refundCost,
                 sale_price: -refundSell,
                 // Ensure profit is calculated correctly by frontend based on these negatives
+                booking: {
+                    ...ticket.booking,
+                    status_date: isVoid ? (ticket.void_date || ticket.booking?.status_date) : (ticket.refund_date || ticket.booking?.status_date)
+                }
             });
         } else {
             // Normal Ticket
@@ -1034,9 +1043,11 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
         const dateA = new Date(a.booking?.status_date || 0).getTime();
         const dateB = new Date(b.booking?.status_date || 0).getTime();
         if (dateA === dateB) {
-            // Tie-breaker: put Refunds lower than Issues if they happened on the same day for the same ticket
-            if (a.ticket_status === 'REFUNDED' && b.ticket_status !== 'REFUNDED') return -1;
-            if (b.ticket_status === 'REFUNDED' && a.ticket_status !== 'REFUNDED') return 1;
+            // Tie-breaker: put Refunds/Voids lower than Issues if they happened on the same day for the same ticket
+            const isAbillable = a.ticket_status === 'REFUNDED' || a.ticket_status === 'VOID';
+            const isBbillable = b.ticket_status === 'REFUNDED' || b.ticket_status === 'VOID';
+            if (isAbillable && !isBbillable) return -1;
+            if (isBbillable && !isAbillable) return 1;
             return 0; // maintain sub-order
         }
         return dateB - dateA;
