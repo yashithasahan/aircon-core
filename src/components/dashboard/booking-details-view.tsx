@@ -377,6 +377,8 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                 parent_booking_id: booking.id, // LINK TO PARENT
                                 created_at: undefined,
                                 ticket_status: 'REISSUE', // Default to REISSUE
+                                entry_date: new Date().toISOString().split('T')[0], // New reissue date
+                                ticket_issued_date: '', // Do not inherit parent's old issue date
                                 // Reset Financials
                                 fare: 0,
                                 selling_price: 0,

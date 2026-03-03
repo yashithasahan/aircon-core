@@ -502,7 +502,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                         currentPassengers.forEach((_, index) => {
                                             setValue(`passengers.${index}.ticket_status`, val as any);
                                             if (val === 'VOID') {
-                                                const originalDate = getValues('ticket_issued_date') || getValues('entry_date') || new Date().toISOString().split('T')[0];
+                                                const originalDate = getValues('ticket_issued_date') || new Date().toISOString().split('T')[0];
                                                 setValue(`passengers.${index}.void_date`, originalDate);
                                             }
                                         });
@@ -519,7 +519,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                     }
 
                                     if (val === 'VOID') {
-                                        const originalDate = getValues('ticket_issued_date') || getValues('entry_date') || new Date().toISOString().split('T')[0];
+                                        const originalDate = getValues('ticket_issued_date') || new Date().toISOString().split('T')[0];
                                         setValue('void_date', originalDate);
                                     }
                                 }} value={field.value as string} disabled={disableStatusChange || isReissueMode}>
@@ -531,7 +531,6 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                     <SelectContent>
                                         <SelectItem value="PENDING">Pending</SelectItem>
                                         <SelectItem value="ISSUED">Issued</SelectItem>
-                                        <SelectItem value="REISSUE">Reissue</SelectItem>
                                         <SelectItem value="VOID">Void</SelectItem>
                                         <SelectItem value="REFUNDED">Refunded</SelectItem>
                                     </SelectContent>
@@ -728,7 +727,8 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                                 <Select onValueChange={(val) => {
                                                     field.onChange(val);
                                                     if (val === 'VOID') {
-                                                        setValue(`passengers.${index}.void_date`, new Date().toISOString().split('T')[0]);
+                                                        const originalDate = getValues('ticket_issued_date') || new Date().toISOString().split('T')[0];
+                                                        setValue(`passengers.${index}.void_date`, originalDate);
                                                     }
                                                 }} value={field.value} disabled={disableStatusChange || isReissueMode}>
                                                     <FormControl>
@@ -739,7 +739,6 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                                     <SelectContent>
                                                         <SelectItem value="PENDING">Pending</SelectItem>
                                                         <SelectItem value="ISSUED">Issued</SelectItem>
-                                                        <SelectItem value="REISSUE">Reissue</SelectItem>
                                                         <SelectItem value="VOID">Void</SelectItem>
                                                         <SelectItem value="REFUNDED">Refunded</SelectItem>
                                                     </SelectContent>
