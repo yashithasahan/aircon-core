@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Pencil, Link } from 'lucide-react'
+import { ArrowLeft, Pencil, Link, Loader2, Scissors } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import {
     Table,
@@ -17,8 +17,11 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import { BookingForm } from "@/components/passengers/booking-form"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Agent, IssuedPartner, Platform } from "@/types"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+
 
 interface LinkedBookingSummary {
     id: string;
@@ -29,6 +32,7 @@ interface LinkedBookingSummary {
     created_at: string;
     fare?: number;
     selling_price?: number;
+    booking_type?: string;
 }
 
 interface BookingDetailsViewProps {
@@ -66,6 +70,7 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
             case 'VOID': return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800';
             case 'REFUNDED': return 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800';
             case 'CANCELED': return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700';
+            case 'SPLIT': return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-800';
             default: return 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800';
         }
     }
@@ -218,7 +223,9 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                                 <div className="absolute -left-4 top-1/2 w-4 h-[1px] bg-slate-300 dark:bg-slate-700"></div>
                                                 <div className="absolute -left-4 -top-6 bottom-1/2 w-[1px] bg-slate-300 dark:bg-slate-700"></div>
 
-                                                <Badge variant="outline" className="text-slate-500 border-slate-300">Reissue</Badge>
+                                                <Badge variant="outline" className="text-slate-500 border-slate-300">
+                                                    {child.booking_type === 'CLONE' ? 'Split (Clone)' : 'Reissue'}
+                                                </Badge>
                                                 <div className="flex-1 grid grid-cols-4 gap-4 text-sm items-center">
                                                     <div className="font-medium">{child.pnr}</div>
                                                     <div className="text-slate-500">{child.airline}</div>
@@ -257,6 +264,7 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                     <TableHead>Status</TableHead>
                                     <TableHead className="text-right">Cost</TableHead>
                                     <TableHead className="text-right">Selling</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
                                     {booking.passengers?.some(p => p.ticket_status === 'REFUNDED') && (
                                         <TableHead className="text-right">Refund</TableHead>
                                     )}
@@ -278,6 +286,9 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                             </TableCell>
                                             <TableCell className="text-right">{pax.cost_price?.toFixed(2)}</TableCell>
                                             <TableCell className="text-right">{pax.sale_price?.toFixed(2)}</TableCell>
+                                            <TableCell className="text-right">
+
+                                            </TableCell>
                                             {booking.passengers?.some(p => p.ticket_status === 'REFUNDED') && (
                                                 <TableCell className="text-right text-red-600">
                                                     {pax.ticket_status === 'REFUNDED' ? (pax.refund_amount_customer || 0).toFixed(2) : '-'}
@@ -287,7 +298,7 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={booking.passengers?.some(p => p.ticket_status === 'REFUNDED') ? 7 : 6} className="text-center py-8 text-slate-500">No passengers found</TableCell>
+                                        <TableCell colSpan={booking.passengers?.some(p => p.ticket_status === 'REFUNDED') ? 8 : 7} className="text-center py-8 text-slate-500">No passengers found</TableCell>
                                     </TableRow>
                                 )}
                             </TableBody>

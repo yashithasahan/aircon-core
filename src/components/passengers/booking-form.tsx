@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { format } from "date-fns"
-import { Check, ChevronsUpDown, Loader2, Plus, Trash2 } from "lucide-react"
+import { Check, ChevronsUpDown, Loader2, Plus, Trash2, Scissors } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -72,6 +72,7 @@ const passengerSchema = z.object({
     refund_amount_customer: z.coerce.number().optional(),
     refund_date: z.string().optional(),
     void_date: z.string().optional(),
+    clone_pnr: z.string().optional(),
 })
 
 const bookingFormSchema = z.object({
@@ -81,8 +82,8 @@ const bookingFormSchema = z.object({
     pnr: z.string().min(1, "PNR is required"),
     entry_date: z.string().min(1, "Booking date is required"),
     airline: z.string().min(1, "Airline is required"),
-    ticket_status: z.enum(["PENDING", "ISSUED", "VOID", "REFUNDED", "REISSUE"]),
-    booking_type: z.enum(["ORIGINAL", "REISSUE"]).default("ORIGINAL"),
+    ticket_status: z.enum(["PENDING", "ISSUED", "VOID", "REFUNDED", "REISSUE", "SPLIT"]),
+    booking_type: z.enum(["ORIGINAL", "REISSUE", "CLONE"]).default("ORIGINAL"),
     ticket_issued_date: z.string().optional(),
     platform: z.string().min(1, "Platform is required"),
     ticket_number: z.string().optional(), // Optional on root, specific on passenger
@@ -149,6 +150,24 @@ const bookingFormSchema = z.object({
             path: ["ticket_issued_date"]
         });
     }
+
+    // Require clone_pnr for passengers being Voided/Refunded in a Non-Clone booking
+    data.passengers.forEach((pax, index) => {
+        if (data.booking_type !== 'CLONE' && (pax.ticket_status === 'VOID' || pax.ticket_status === 'REFUNDED')) {
+            // Also need to check if the ticket was ALREADY voided/refunded. We only require it for NEW splits.
+            // But superRefine only sees current data, so we enforce it anytime they submit a VOID/REFUNDED passenger
+            // Ideally, we'd check if it was already SPLIT. Since SPLIT passengers remain SPLIT (they don't change to VOID here),
+            // any passenger with status 'VOID' or 'REFUNDED' in a master booking must be a newly generated split.
+            if (!pax.clone_pnr || pax.clone_pnr.trim() === '') {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "New Clone PNR is required to Split this ticket",
+                    path: ["passengers", index, "clone_pnr"]
+                });
+            }
+        }
+    });
+
 });
 
 type BookingFormValues = z.infer<typeof bookingFormSchema>
@@ -807,7 +826,7 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
 
                                 {/* Row 3: Refund Details (Conditional) */}
                                 {watch(`passengers.${index}.ticket_status`) === 'REFUNDED' && (
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20 mb-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20 mb-4">
                                         <FormField
                                             control={control}
                                             name={`passengers.${index}.refund_amount_partner`}
@@ -847,6 +866,21 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                                 </FormItem>
                                             )}
                                         />
+                                        {watch('booking_type') !== 'CLONE' && (
+                                            <FormField
+                                                control={control}
+                                                name={`passengers.${index}.clone_pnr`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="flex items-center gap-2"><Scissors className="h-3 w-3" /> New Clone PNR</FormLabel>
+                                                        <FormControl>
+                                                            <Input placeholder="Req. for Split" {...field} value={field.value || ''} className="border-red-200 focus-visible:ring-red-500" />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                        )}
                                     </div>
                                 )}
 
@@ -866,6 +900,21 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                                 </FormItem>
                                             )}
                                         />
+                                        {watch('booking_type') !== 'CLONE' && (
+                                            <FormField
+                                                control={control}
+                                                name={`passengers.${index}.clone_pnr`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="flex items-center gap-2"><Scissors className="h-3 w-3" /> New Clone PNR</FormLabel>
+                                                        <FormControl>
+                                                            <Input placeholder="Req. for Split" {...field} value={field.value || ''} className="border-orange-200 focus-visible:ring-orange-500" />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                        )}
                                     </div>
                                 )}
 

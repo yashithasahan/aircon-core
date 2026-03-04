@@ -39,8 +39,8 @@ export interface Booking {
 
     // New fields
     parent_booking_id?: string; // For Reissues/Splits
-    booking_type?: 'ORIGINAL' | 'REISSUE';
-    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'REISSUE';
+    booking_type?: 'ORIGINAL' | 'REISSUE' | 'CLONE';
+    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'REISSUE' | 'SPLIT';
     ticket_issued_date?: string;
     advance_payment?: number;
     platform?: string;
@@ -85,7 +85,7 @@ export interface Passenger {
     passport_expiry?: string;
     contact_info?: string;
     phone_number?: string;
-    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'REISSUE';
+    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'REISSUE' | 'SPLIT';
     passenger_type?: 'ADULT' | 'CHILD' | 'INFANT';
 }
 
@@ -102,13 +102,14 @@ export interface PassengerDetail {
     sale_price: number;
 
     cost_price: number;
-    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'REISSUE';
+    ticket_status?: 'PENDING' | 'ISSUED' | 'VOID' | 'REFUNDED' | 'REISSUE' | 'SPLIT';
     refund_amount_partner?: number;
     refund_amount_customer?: number;
     refund_date?: string;
     void_date?: string;
     phone_number?: string;
     contact_info?: string;
+    clone_pnr?: string; // Transient field for splitting passengers
 }
 
 export type BookingFormData = Omit<Booking, "id" | "created_at" | "profit" | "agent" | "issued_partner" | "ticket_number" | "passenger_id" | "pax_name"> & {
