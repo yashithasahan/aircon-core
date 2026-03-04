@@ -105,6 +105,11 @@ export function BookingsTable({ bookings, passengers = [], agents = [], issuedPa
                                             <Badge variant="outline" className="w-fit font-mono text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                                                 {booking.pnr}
                                             </Badge>
+                                            {booking.booking_type === 'CLONE' && (
+                                                <Badge variant="secondary" className="w-fit mt-1 text-[10px] bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-800">
+                                                    Split (Clone)
+                                                </Badge>
+                                            )}
                                         </div>
                                     </TableCell>
                                     <TableCell className="font-medium text-xs text-slate-500">
