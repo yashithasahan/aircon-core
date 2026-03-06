@@ -26,6 +26,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
     Command,
     CommandEmpty,
@@ -54,12 +55,13 @@ import { Passenger, Agent, IssuedPartner, Platform } from "@/types"
 
 // --- Zod Schema ---
 const passengerSchema = z.object({
+    id: z.string().optional(),
     passenger_id: z.string().optional(),
     pax_type: z.enum(["ADULT", "CHILD", "INFANT"]),
     title: z.string().min(1, "Title is required"),
     first_name: z.string().min(1, "First Name is required"),
     surname: z.string().min(1, "Surname is required"),
-    ticket_number: z.string().min(1, "Ticket Number is required"),
+    ticket_number: z.string().optional(),
     passport_number: z.string().min(1, "Passport Number is required"),
     passport_expiry: z.string().min(1, "Passport Expiry is required"),
     sale_price: z.coerce.number().min(0, "Sale Price must be positive"),
@@ -67,12 +69,13 @@ const passengerSchema = z.object({
     // Optional contact info if needed for creating new profiles?
     contact_info: z.string().email("Invalid email").optional().or(z.literal("")),
     phone_number: z.string().optional(),
-    ticket_status: z.enum(["PENDING", "ISSUED", "VOID", "REFUNDED", "REISSUE"]).optional(),
+    ticket_status: z.enum(["PENDING", "ISSUED", "VOID", "REFUNDED", "REISSUE", "SPLIT"]).optional(),
     refund_amount_partner: z.coerce.number().optional(),
     refund_amount_customer: z.coerce.number().optional(),
     refund_date: z.string().optional(),
     void_date: z.string().optional(),
     clone_pnr: z.string().optional(),
+    is_reissuing: z.boolean().optional(),
 })
 
 const bookingFormSchema = z.object({
@@ -151,8 +154,21 @@ const bookingFormSchema = z.object({
         });
     }
 
-    // Require clone_pnr for passengers being Voided/Refunded in a Non-Clone booking
     data.passengers.forEach((pax, index) => {
+        // Skip validation entirely for passengers specifically excluded from a reissue
+        if (data.booking_type === 'REISSUE' && pax.is_reissuing === false) {
+            return;
+        }
+
+        // Validate ticket number is present for active passengers
+        if (!pax.ticket_number || pax.ticket_number.trim() === '') {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Ticket Number is required",
+                path: ["passengers", index, "ticket_number"]
+            });
+        }
+
         if (data.booking_type !== 'CLONE' && (pax.ticket_status === 'VOID' || pax.ticket_status === 'REFUNDED')) {
             // Also need to check if the ticket was ALREADY voided/refunded. We only require it for NEW splits.
             // But superRefine only sees current data, so we enforce it anytime they submit a VOID/REFUNDED passenger
@@ -350,8 +366,25 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
     async function onSubmit(data: BookingFormValues) {
         setLoading(true)
         try {
+            // Process Passengers (Filter out unchecked ones in Reissue Mode)
+            let processedPassengers = data.passengers;
+
+            if (isReissueMode) {
+                processedPassengers = data.passengers.filter(p => (p as any).is_reissuing !== false);
+                if (processedPassengers.length === 0) {
+                    toast.error("Please select at least one passenger to reissue.");
+                    setLoading(false);
+                    return;
+                }
+
+                // Force status to REISSUE for included passengers in the new booking
+                processedPassengers = processedPassengers.map(p => ({ ...p, ticket_status: 'REISSUE', id: p.id === "new" ? undefined : p.id }));
+            } else {
+                processedPassengers = data.passengers.map(p => ({ ...p, id: p.id === "new" ? undefined : p.id }));
+            }
+
             // Process passengers: create profiles if needed
-            const processedPassengers = await Promise.all(data.passengers.map(async (pax) => {
+            processedPassengers = await Promise.all(processedPassengers.map(async (pax) => {
                 let finalPaxId = pax.passenger_id;
 
                 // Create new passenger if needed (no ID but has name)
@@ -601,240 +634,158 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                 </Button>
 
                                 {/* Row 1: Search & Name */}
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pr-8">
-                                    <div className="flex flex-col space-y-2">
-                                        <FormLabel>Select Passenger</FormLabel>
-                                        <Popover open={openPaxIndex === index} onOpenChange={(open) => setOpenPaxIndex(open ? index : null)}>
-                                            <PopoverTrigger asChild>
-                                                <Button variant="outline" role="combobox" className="w-full justify-between">
-                                                    <span className="truncate">
-                                                        {watch(`passengers.${index}.first_name`) || watch(`passengers.${index}.surname`)
-                                                            ? `${watch(`passengers.${index}.first_name`)} ${watch(`passengers.${index}.surname`)}`
-                                                            : "Select..."}
-                                                    </span>
-                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-[300px] p-0">
-                                                <Command>
-                                                    <CommandInput placeholder="Search..." />
-                                                    <CommandList>
-                                                        <CommandEmpty>No passenger found.</CommandEmpty>
-                                                        <CommandGroup>
-                                                            {passengers.map((p) => (
-                                                                <CommandItem
-                                                                    key={p.id}
-                                                                    value={p.name}
-                                                                    onSelect={() => {
-                                                                        setValue(`passengers.${index}.passenger_id` as any, p.id)
-                                                                        setValue(`passengers.${index}.title` as any, p.title || "")
-                                                                        setValue(`passengers.${index}.first_name` as any, p.first_name || "")
-                                                                        setValue(`passengers.${index}.surname` as any, p.surname || "")
-                                                                        setValue(`passengers.${index}.contact_info` as any, p.contact_info || "")
-                                                                        setValue(`passengers.${index}.phone_number` as any, p.phone_number || "")
-                                                                        setValue(`passengers.${index}.passport_number` as any, p.passport_number || "")
-                                                                        if (p.passport_expiry) {
-                                                                            try {
-                                                                                const dateStr = new Date(p.passport_expiry as string).toISOString().split('T')[0];
-                                                                                setValue(`passengers.${index}.passport_expiry`, dateStr);
-                                                                            } catch (e) {
-                                                                                console.error("Invalid passport expiry date", p.passport_expiry);
+                                {isReissueMode && (
+                                    <FormField
+                                        control={control}
+                                        name={`passengers.${index}.is_reissuing`}
+                                        render={({ field }) => (
+                                            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border border-blue-200 dark:border-blue-900/50 p-4 bg-blue-50/50 dark:bg-blue-900/20 mb-4 shadow-sm">
+                                                <FormControl>
+                                                    <Checkbox
+                                                        checked={field.value !== false}
+                                                        onCheckedChange={field.onChange}
+                                                    />
+                                                </FormControl>
+                                                <div className="space-y-1 leading-none">
+                                                    <FormLabel className="font-semibold text-blue-700 dark:text-blue-400">Include this passenger in Reissue</FormLabel>
+                                                    <p className="text-xs text-muted-foreground">Uncheck if you do not want to generate a new Reissued ghost ticket for them.</p>
+                                                </div>
+                                            </FormItem>
+                                        )}
+                                    />
+                                )}
+                                <div className={cn("space-y-4", isReissueMode && watch("passengers")[index]?.is_reissuing === false ? "hidden" : "")}>
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pr-8">
+                                        <div className="flex flex-col space-y-2">
+                                            <FormLabel>Select Passenger</FormLabel>
+                                            <Popover open={openPaxIndex === index} onOpenChange={(open) => setOpenPaxIndex(open ? index : null)}>
+                                                <PopoverTrigger asChild>
+                                                    <Button variant="outline" role="combobox" className="w-full justify-between">
+                                                        <span className="truncate">
+                                                            {watch(`passengers.${index}.first_name`) || watch(`passengers.${index}.surname`)
+                                                                ? `${watch(`passengers.${index}.first_name`)} ${watch(`passengers.${index}.surname`)}`
+                                                                : "Select..."}
+                                                        </span>
+                                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-[300px] p-0">
+                                                    <Command>
+                                                        <CommandInput placeholder="Search..." />
+                                                        <CommandList>
+                                                            <CommandEmpty>No passenger found.</CommandEmpty>
+                                                            <CommandGroup>
+                                                                {passengers.map((p) => (
+                                                                    <CommandItem
+                                                                        key={p.id}
+                                                                        value={p.name}
+                                                                        onSelect={() => {
+                                                                            setValue(`passengers.${index}.passenger_id` as any, p.id)
+                                                                            setValue(`passengers.${index}.title` as any, p.title || "")
+                                                                            setValue(`passengers.${index}.first_name` as any, p.first_name || "")
+                                                                            setValue(`passengers.${index}.surname` as any, p.surname || "")
+                                                                            setValue(`passengers.${index}.contact_info` as any, p.contact_info || "")
+                                                                            setValue(`passengers.${index}.phone_number` as any, p.phone_number || "")
+                                                                            setValue(`passengers.${index}.passport_number` as any, p.passport_number || "")
+                                                                            if (p.passport_expiry) {
+                                                                                try {
+                                                                                    const dateStr = new Date(p.passport_expiry as string).toISOString().split('T')[0];
+                                                                                    setValue(`passengers.${index}.passport_expiry`, dateStr);
+                                                                                } catch (e) {
+                                                                                    console.error("Invalid passport expiry date", p.passport_expiry);
+                                                                                }
+                                                                            } else {
+                                                                                setValue(`passengers.${index}.passport_expiry`, "");
                                                                             }
-                                                                        } else {
-                                                                            setValue(`passengers.${index}.passport_expiry`, "");
-                                                                        }
 
-                                                                        // Reset ID if manually changed? Handled by onChange in inputs below
-                                                                        setOpenPaxIndex(null)
-                                                                    }}
-                                                                >
-                                                                    <Check className={cn("mr-2 h-4 w-4", watch(`passengers.${index}.passenger_id`) === p.id ? "opacity-100" : "opacity-0")} />
-                                                                    {p.name}
-                                                                </CommandItem>
-                                                            ))}
-                                                        </CommandGroup>
-                                                    </CommandList>
-                                                </Command>
-                                            </PopoverContent>
-                                        </Popover>
+                                                                            // Reset ID if manually changed? Handled by onChange in inputs below
+                                                                            setOpenPaxIndex(null)
+                                                                        }}
+                                                                    >
+                                                                        <Check className={cn("mr-2 h-4 w-4", watch(`passengers.${index}.passenger_id`) === p.id ? "opacity-100" : "opacity-0")} />
+                                                                        {p.name}
+                                                                    </CommandItem>
+                                                                ))}
+                                                            </CommandGroup>
+                                                        </CommandList>
+                                                    </Command>
+                                                </PopoverContent>
+                                            </Popover>
+                                        </div>
+
+                                        <FormField
+                                            control={control}
+                                            name={`passengers.${index}.title`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Title</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder="MR" {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={control}
+                                            name={`passengers.${index}.first_name`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>First Name</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder="John" {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={control}
+                                            name={`passengers.${index}.surname`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Surname</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder="Doe" {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
                                     </div>
 
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.title`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Title</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="MR" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.first_name`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>First Name</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="John" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.surname`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Surname</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="Doe" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                </div>
-
-                                {/* Row 2: Type, Ticket No, Status, Financials */}
-                                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.pax_type`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Pax Type</FormLabel>
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                    <FormControl>
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Type" />
-                                                        </SelectTrigger>
-                                                    </FormControl>
-                                                    <SelectContent>
-                                                        <SelectItem value="ADULT">ADULT</SelectItem>
-                                                        <SelectItem value="CHILD">CHILD</SelectItem>
-                                                        <SelectItem value="INFANT">INFANT</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.ticket_number`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Ticket Number</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="176-" {...field} disabled={watch(`passengers.${index}.ticket_status`) === 'PENDING'} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.ticket_status`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Status</FormLabel>
-                                                <Select onValueChange={(val) => {
-                                                    field.onChange(val);
-                                                    if (val === 'VOID') {
-                                                        const originalDate = getValues('ticket_issued_date') || new Date().toISOString().split('T')[0];
-                                                        setValue(`passengers.${index}.void_date`, originalDate);
-                                                    }
-                                                }} value={field.value} disabled={disableStatusChange || isReissueMode}>
-                                                    <FormControl>
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Status" />
-                                                        </SelectTrigger>
-                                                    </FormControl>
-                                                    <SelectContent>
-                                                        <SelectItem value="PENDING">Pending</SelectItem>
-                                                        <SelectItem value="ISSUED">Issued</SelectItem>
-                                                        <SelectItem value="VOID">Void</SelectItem>
-                                                        <SelectItem value="REFUNDED">Refunded</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.cost_price`}
-                                        render={({ field }) => {
-                                            // Find original cost if reissue
-                                            const currentPaxId = getValues(`passengers.${index}.passenger_id`);
-                                            const originalPax = parentBooking?.passengers?.find((p: any) => p.passenger_id === currentPaxId);
-
-                                            return (
-                                                <FormItem>
-                                                    <FormLabel>{isReissueMode ? "Reissue Cost" : "Cost (Fare)"}</FormLabel>
-                                                    <FormControl>
-                                                        <Input type="number" {...field} />
-                                                    </FormControl>
-                                                    {isReissueMode && originalPax && (
-                                                        <p className="text-[10px] text-slate-500">
-                                                            Old Cost: {originalPax.cost_price?.toFixed(2)}
-                                                        </p>
-                                                    )}
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )
-                                        }}
-                                    />
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.sale_price`}
-                                        render={({ field }) => {
-                                            const currentPaxId = getValues(`passengers.${index}.passenger_id`);
-                                            const originalPax = parentBooking?.passengers?.find((p: any) => p.passenger_id === currentPaxId);
-
-                                            return (
-                                                <FormItem>
-                                                    <FormLabel>{isReissueMode ? "Reissue Price" : "Sell Price"}</FormLabel>
-                                                    <FormControl>
-                                                        <Input type="number" {...field} />
-                                                    </FormControl>
-                                                    {isReissueMode && originalPax && (
-                                                        <p className="text-[10px] text-slate-500">
-                                                            Old Sell: {originalPax.sale_price?.toFixed(2)}
-                                                        </p>
-                                                    )}
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )
-                                        }}
-                                    />
-                                </div>
-                                <div className="flex flex-col justify-end pb-2">
-                                    <div className="text-xs text-muted-foreground uppercase">Profit</div>
-                                    <div className={cn("text-sm font-bold",
-                                        (Number(watch(`passengers.${index}.sale_price`) || 0) - Number(watch(`passengers.${index}.cost_price`) || 0)) >= 0
-                                            ? "text-green-600" : "text-red-500")}>
-                                        {(Number(watch(`passengers.${index}.sale_price`) || 0) - Number(watch(`passengers.${index}.cost_price`) || 0)).toFixed(2)}
-                                    </div>
-                                </div>
-
-
-                                {/* Row 3: Refund Details (Conditional) */}
-                                {watch(`passengers.${index}.ticket_status`) === 'REFUNDED' && (
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20 mb-4">
+                                    {/* Row 2: Type, Ticket No, Status, Financials */}
+                                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                                         <FormField
                                             control={control}
-                                            name={`passengers.${index}.refund_amount_partner`}
+                                            name={`passengers.${index}.pax_type`}
                                             render={({ field }) => (
                                                 <FormItem>
-                                                    <FormLabel>Refund From Partner</FormLabel>
+                                                    <FormLabel>Pax Type</FormLabel>
+                                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                        <FormControl>
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Type" />
+                                                            </SelectTrigger>
+                                                        </FormControl>
+                                                        <SelectContent>
+                                                            <SelectItem value="ADULT">ADULT</SelectItem>
+                                                            <SelectItem value="CHILD">CHILD</SelectItem>
+                                                            <SelectItem value="INFANT">INFANT</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={control}
+                                            name={`passengers.${index}.ticket_number`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Ticket Number</FormLabel>
                                                     <FormControl>
-                                                        <Input type="number" step="0.01" {...field} />
+                                                        <Input placeholder="176-" {...field} disabled={watch(`passengers.${index}.ticket_status`) === 'PENDING'} />
                                                     </FormControl>
                                                     <FormMessage />
                                                 </FormItem>
@@ -842,39 +793,59 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                         />
                                         <FormField
                                             control={control}
-                                            name={`passengers.${index}.refund_amount_customer`}
+                                            name={`passengers.${index}.ticket_status`}
                                             render={({ field }) => (
                                                 <FormItem>
-                                                    <FormLabel>Refund To Customer</FormLabel>
-                                                    <FormControl>
-                                                        <Input type="number" step="0.01" {...field} />
-                                                    </FormControl>
+                                                    <FormLabel>Status</FormLabel>
+                                                    <Select onValueChange={(val) => {
+                                                        field.onChange(val);
+                                                        if (val === 'VOID') {
+                                                            const originalDate = getValues('ticket_issued_date') || new Date().toISOString().split('T')[0];
+                                                            setValue(`passengers.${index}.void_date`, originalDate);
+                                                        }
+                                                    }} value={field.value} disabled={disableStatusChange || isReissueMode}>
+                                                        <FormControl>
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Status" />
+                                                            </SelectTrigger>
+                                                        </FormControl>
+                                                        <SelectContent>
+                                                            <SelectItem value="PENDING">Pending</SelectItem>
+                                                            <SelectItem value="ISSUED">Issued</SelectItem>
+                                                            <SelectItem value="VOID">Void</SelectItem>
+                                                            <SelectItem value="REFUNDED">Refunded</SelectItem>
+                                                            <SelectItem value="REISSUE">Reissue</SelectItem>
+                                                            <SelectItem value="SPLIT">Split</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
                                                     <FormMessage />
                                                 </FormItem>
                                             )}
                                         />
-                                        <FormField
-                                            control={control}
-                                            name={`passengers.${index}.refund_date`}
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Refund Date</FormLabel>
-                                                    <FormControl>
-                                                        <Input type="date" {...field} value={field.value as string} />
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                        {watch('booking_type') !== 'CLONE' && (
+                                        {!isReissueMode && (
                                             <FormField
                                                 control={control}
-                                                name={`passengers.${index}.clone_pnr`}
+                                                name={`passengers.${index}.cost_price`}
                                                 render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel className="flex items-center gap-2"><Scissors className="h-3 w-3" /> New Clone PNR</FormLabel>
+                                                        <FormLabel>Cost (Fare)</FormLabel>
                                                         <FormControl>
-                                                            <Input placeholder="Req. for Split" {...field} value={field.value || ''} className="border-red-200 focus-visible:ring-red-500" />
+                                                            <Input type="number" {...field} />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                        )}
+                                        {!isReissueMode && (
+                                            <FormField
+                                                control={control}
+                                                name={`passengers.${index}.sale_price`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Sell Price</FormLabel>
+                                                        <FormControl>
+                                                            <Input type="number" {...field} />
                                                         </FormControl>
                                                         <FormMessage />
                                                     </FormItem>
@@ -882,96 +853,222 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                             />
                                         )}
                                     </div>
-                                )}
+                                    {!isReissueMode && (
+                                        <div className="flex flex-col justify-end pb-2">
+                                            <div className="text-xs text-muted-foreground uppercase">Profit</div>
+                                            <div className={cn("text-sm font-bold",
+                                                (Number(watch(`passengers.${index}.sale_price`) || 0) - Number(watch(`passengers.${index}.cost_price`) || 0)) >= 0
+                                                    ? "text-green-600" : "text-red-500")}>
+                                                {(Number(watch(`passengers.${index}.sale_price`) || 0) - Number(watch(`passengers.${index}.cost_price`) || 0)).toFixed(2)}
+                                            </div>
+                                        </div>
+                                    )}
 
-                                {/* Row 3.5: Void Details (Conditional) */}
-                                {watch(`passengers.${index}.ticket_status`) === 'VOID' && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-orange-50 dark:bg-orange-900/10 rounded-lg border border-orange-100 dark:border-orange-900/20 mb-4">
-                                        <FormField
-                                            control={control}
-                                            name={`passengers.${index}.void_date`}
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Void Date</FormLabel>
-                                                    <FormControl>
-                                                        <Input type="date" {...field} value={field.value as string} disabled />
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                        {watch('booking_type') !== 'CLONE' && (
+                                    {isReissueMode && watch("passengers")[index]?.is_reissuing !== false && (
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 mt-4 bg-orange-50 dark:bg-orange-900/10 rounded-lg border border-orange-200 dark:border-orange-900/30">
                                             <FormField
                                                 control={control}
-                                                name={`passengers.${index}.clone_pnr`}
+                                                name={`passengers.${index}.cost_price`}
+                                                render={({ field }) => {
+                                                    const currentPaxId = getValues(`passengers.${index}.passenger_id`);
+                                                    const originalPax = parentBooking?.passengers?.find((p: any) => p.passenger_id === currentPaxId);
+                                                    return (
+                                                        <FormItem>
+                                                            <FormLabel>Reissue Cost</FormLabel>
+                                                            <FormControl>
+                                                                <Input type="number" {...field} />
+                                                            </FormControl>
+                                                            {originalPax && (
+                                                                <p className="text-[10px] text-slate-500">
+                                                                    Old Cost: {originalPax.cost_price?.toFixed(2)}
+                                                                </p>
+                                                            )}
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )
+                                                }}
+                                            />
+                                            <FormField
+                                                control={control}
+                                                name={`passengers.${index}.sale_price`}
+                                                render={({ field }) => {
+                                                    const currentPaxId = getValues(`passengers.${index}.passenger_id`);
+                                                    const originalPax = parentBooking?.passengers?.find((p: any) => p.passenger_id === currentPaxId);
+                                                    return (
+                                                        <FormItem>
+                                                            <FormLabel>Reissue Price</FormLabel>
+                                                            <FormControl>
+                                                                <Input type="number" {...field} />
+                                                            </FormControl>
+                                                            {originalPax && (
+                                                                <p className="text-[10px] text-slate-500">
+                                                                    Old Sell: {originalPax.sale_price?.toFixed(2)}
+                                                                </p>
+                                                            )}
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )
+                                                }}
+                                            />
+                                            <div className="flex flex-col justify-end pb-2">
+                                                <div className="text-xs text-muted-foreground uppercase">Reissue Profit</div>
+                                                <div className={cn("text-sm font-bold",
+                                                    (Number(watch(`passengers.${index}.sale_price`) || 0) - Number(watch(`passengers.${index}.cost_price`) || 0)) >= 0
+                                                        ? "text-green-600" : "text-red-500")}>
+                                                    {(Number(watch(`passengers.${index}.sale_price`) || 0) - Number(watch(`passengers.${index}.cost_price`) || 0)).toFixed(2)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {/* Row 3: Refund Details (Conditional) */}
+                                    {watch(`passengers.${index}.ticket_status`) === 'REFUNDED' && (
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20 mb-4">
+                                            <FormField
+                                                control={control}
+                                                name={`passengers.${index}.refund_amount_partner`}
                                                 render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel className="flex items-center gap-2"><Scissors className="h-3 w-3" /> New Clone PNR</FormLabel>
+                                                        <FormLabel>Refund From Partner</FormLabel>
                                                         <FormControl>
-                                                            <Input placeholder="Req. for Split" {...field} value={field.value || ''} className="border-orange-200 focus-visible:ring-orange-500" />
+                                                            <Input type="number" step="0.01" {...field} />
                                                         </FormControl>
                                                         <FormMessage />
                                                     </FormItem>
                                                 )}
                                             />
-                                        )}
-                                    </div>
-                                )}
+                                            <FormField
+                                                control={control}
+                                                name={`passengers.${index}.refund_amount_customer`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Refund To Customer</FormLabel>
+                                                        <FormControl>
+                                                            <Input type="number" step="0.01" {...field} />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={control}
+                                                name={`passengers.${index}.refund_date`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Refund Date</FormLabel>
+                                                        <FormControl>
+                                                            <Input type="date" {...field} value={field.value as string} />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            {watch('booking_type') !== 'CLONE' && (
+                                                <FormField
+                                                    control={control}
+                                                    name={`passengers.${index}.clone_pnr`}
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel className="flex items-center gap-2"><Scissors className="h-3 w-3" /> New Clone PNR</FormLabel>
+                                                            <FormControl>
+                                                                <Input placeholder="Req. for Split" {...field} value={field.value || ''} className="border-red-200 focus-visible:ring-red-500" />
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                            )}
+                                        </div>
+                                    )}
 
-                                {/* Row 4: Passport Information & Contact */}
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.passport_number`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Passport No</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="N..." {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.passport_expiry`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Passport Expiry</FormLabel>
-                                                <FormControl>
-                                                    <Input type="date" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.phone_number`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Phone</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="+94..." {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={control}
-                                        name={`passengers.${index}.contact_info`}
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Email</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="a@b.com" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
+                                    {/* Row 3.5: Void Details (Conditional) */}
+                                    {watch(`passengers.${index}.ticket_status`) === 'VOID' && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-orange-50 dark:bg-orange-900/10 rounded-lg border border-orange-100 dark:border-orange-900/20 mb-4">
+                                            <FormField
+                                                control={control}
+                                                name={`passengers.${index}.void_date`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Void Date</FormLabel>
+                                                        <FormControl>
+                                                            <Input type="date" {...field} value={field.value as string} disabled />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            {watch('booking_type') !== 'CLONE' && (
+                                                <FormField
+                                                    control={control}
+                                                    name={`passengers.${index}.clone_pnr`}
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel className="flex items-center gap-2"><Scissors className="h-3 w-3" /> New Clone PNR</FormLabel>
+                                                            <FormControl>
+                                                                <Input placeholder="Req. for Split" {...field} value={field.value || ''} className="border-orange-200 focus-visible:ring-orange-500" />
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Row 4: Passport Information & Contact */}
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                        <FormField
+                                            control={control}
+                                            name={`passengers.${index}.passport_number`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Passport No</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder="N..." {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={control}
+                                            name={`passengers.${index}.passport_expiry`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Passport Expiry</FormLabel>
+                                                    <FormControl>
+                                                        <Input type="date" {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={control}
+                                            name={`passengers.${index}.phone_number`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Phone</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder="+94..." {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={control}
+                                            name={`passengers.${index}.contact_info`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Email</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder="a@b.com" {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         ))}

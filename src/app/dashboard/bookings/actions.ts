@@ -224,6 +224,21 @@ export async function createBooking(formData: BookingFormData) {
         }
     }
 
+    // 6.5 Update Parent Booking's Passengers if this is a REISSUE
+    if (formData.booking_type === 'REISSUE' && formData.parent_booking_id && formData.passengers?.length > 0) {
+        const reissuedPaxIds = formData.passengers.map(p => p.passenger_id).filter(Boolean);
+        if (reissuedPaxIds.length > 0) {
+            const { error: updateParentPaxError } = await supabase.from('booking_passengers')
+                .update({ ticket_status: 'REISSUE' })
+                .eq('booking_id', formData.parent_booking_id)
+                .in('passenger_id', reissuedPaxIds);
+
+            if (updateParentPaxError) {
+                console.error('Error updating parent passenger statuses to REISSUE:', updateParentPaxError);
+            }
+        }
+    }
+
     // 7. Sync Passenger Profile
     if (formData.passengers?.length > 0) {
         for (const p of formData.passengers) {
@@ -1022,16 +1037,20 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
             const isVoid = ticket.ticket_status === 'VOID';
 
             // 1. The Original ISSUED Entry
-            processedData.push({
-                ...ticket,
-                id: `${ticket.id}_original`, // Unique Key
-                ticket_status: ticket.booking?.booking_type === 'REISSUE' ? 'REISSUE' : 'ISSUED', // Show as originally issued/reissued
-                // Override the booking's status_date to point to the original issuance date, not the refund/void date
-                booking: {
-                    ...ticket.booking,
-                    status_date: ticket.booking?.ticket_issued_date || ticket.booking?.entry_date
-                }
-            });
+            // For CLONE bookings (split tickets), the original ISSUED entry is still in the parent booking (as SPLIT).
+            // So we DO NOT duplicate it here.
+            if (ticket.booking?.booking_type !== 'CLONE') {
+                processedData.push({
+                    ...ticket,
+                    id: `${ticket.id}_original`, // Unique Key
+                    ticket_status: ticket.booking?.booking_type === 'REISSUE' ? 'REISSUE' : 'ISSUED', // Show as originally issued/reissued
+                    // Override the booking's status_date to point to the original issuance date, not the refund/void date
+                    booking: {
+                        ...ticket.booking,
+                        status_date: ticket.booking?.ticket_issued_date || ticket.booking?.entry_date
+                    }
+                });
+            }
 
             // 2. The REFUND/VOID Entry (Negative Values)
             // Use refund amounts if available, otherwise fallback to reversing original (assuming full refund if not specified)
@@ -1485,10 +1504,10 @@ export async function splitTicketToClone(
     if (original.issued_partner_id) {
         const { data: partner } = await supabase.from('issued_partners').select('balance').eq('id', original.issued_partner_id).single();
         if (partner) {
-            await supabase.from('issued_partners').update({ balance: Number(partner.balance) - Number(passenger.cost_price) }).eq('id', original.issued_partner_id);
+            await supabase.from('issued_partners').update({ balance: Number(partner.balance) + Number(passenger.cost_price) }).eq('id', original.issued_partner_id);
             await supabase.from('credit_transactions').insert([{
                 issued_partner_id: original.issued_partner_id,
-                amount: -Number(passenger.cost_price),
+                amount: Number(passenger.cost_price),
                 transaction_type: 'ADJUSTMENT',
                 description: `Reversal for Split Passenger ${passenger.first_name} ${passenger.surname} (PNR: ${original.pnr})`,
                 reference_id: originalBookingId,
@@ -1601,7 +1620,7 @@ export async function getLinkedBookings(id: string) {
     if (current.parent_booking_id) {
         const { data: parentData } = await supabase
             .from('bookings')
-            .select('id, pnr, ticket_status, airline, booking_source, created_at, fare, selling_price, booking_type') // Minimal fields for display
+            .select('id, pnr, ticket_status, airline, booking_source, created_at, fare, selling_price, booking_type, passengers:booking_passengers(passenger_id, ticket_status)') // Includes passenger statuses
             .eq('id', current.parent_booking_id)
             .single()
         parent = parentData
@@ -1610,7 +1629,7 @@ export async function getLinkedBookings(id: string) {
     // 3. Fetch children (bookings that list THIS booking as parent)
     const { data: directChildren } = await supabase
         .from('bookings')
-        .select('id, pnr, ticket_status, airline, booking_source, created_at, fare, selling_price, booking_type')
+        .select('id, pnr, ticket_status, airline, booking_source, created_at, fare, selling_price, booking_type, passengers:booking_passengers(passenger_id, ticket_status)')
         .eq('parent_booking_id', id)
 
     children = directChildren || []

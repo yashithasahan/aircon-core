@@ -114,10 +114,15 @@ export function ReportsTable({ tickets }: ReportsTableProps) {
                                 </TableCell>
                                 <TableCell className="text-slate-500 font-mono text-xs">{ticket.ticket_number || '-'}</TableCell>
                                 <TableCell>
-                                    <Badge variant="outline" className={`font-normal ${getStatusColor(ticket.ticket_status)}`}>
-                                        {ticket.ticket_status || 'PENDING'}
+                                    <Badge variant="outline" className={`font-normal ${getStatusColor(ticket.ticket_status === 'SPLIT' ? 'ISSUED' : ticket.ticket_status)}`}>
+                                        {ticket.ticket_status === 'SPLIT' ? 'ISSUED' : (ticket.ticket_status || 'PENDING')}
                                     </Badge>
-                                    {(ticket.booking?.booking_type === 'REISSUE' || !!ticket.booking?.parent_booking_id) && (
+                                    {(ticket.ticket_status === 'SPLIT' || ticket.booking?.booking_type === 'CLONE') && (
+                                        <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-5 bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800">
+                                            Split
+                                        </Badge>
+                                    )}
+                                    {(ticket.booking?.booking_type === 'REISSUE' || ticket.ticket_status === 'REISSUE' || (ticket.booking?.booking_type !== 'CLONE' && ticket.ticket_status !== 'SPLIT' && !!ticket.booking?.parent_booking_id)) && (
                                         <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 h-5 bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800">
                                             Reissue
                                         </Badge>

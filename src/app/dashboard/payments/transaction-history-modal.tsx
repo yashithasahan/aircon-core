@@ -167,6 +167,9 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
                                                         badgeColor = 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400';
                                                         label = 'REFUND';
                                                     }
+                                                } else if (tx.transaction_type === 'ADJUSTMENT') {
+                                                    badgeColor = 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200';
+                                                    label = 'ADJUSTMENT';
                                                 }
 
                                                 return (
