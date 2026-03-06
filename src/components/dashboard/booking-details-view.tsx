@@ -33,6 +33,7 @@ interface LinkedBookingSummary {
     fare?: number;
     selling_price?: number;
     booking_type?: string;
+    passengers?: any[];
 }
 
 interface BookingDetailsViewProps {
@@ -74,6 +75,20 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
             default: return 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800';
         }
     }
+
+    const getDisplayStatus = (pax: any) => {
+        if (pax.ticket_status === 'SPLIT') {
+            const clonePax = linkedBookings.children?.flatMap(c => c.passengers || []).find(cp => cp.passenger_id === pax.passenger_id);
+            if (clonePax && clonePax.ticket_status) {
+                return clonePax.ticket_status;
+            }
+            if (linkedBookings.children?.length === 1 && linkedBookings.children[0].booking_type === 'CLONE') {
+                return linkedBookings.children[0].ticket_status;
+            }
+            return 'SPLIT';
+        }
+        return pax.ticket_status || booking.ticket_status || 'PENDING';
+    };
 
     return (
         <div className="space-y-6">
@@ -280,9 +295,21 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                             <TableCell>{pax.pax_type}</TableCell>
                                             <TableCell className="font-mono">{pax.ticket_number}</TableCell>
                                             <TableCell>
-                                                <Badge variant="outline" className={getStatusColor(pax.ticket_status || booking.ticket_status || 'PENDING')}>
-                                                    {pax.ticket_status || booking.ticket_status}
-                                                </Badge>
+                                                <div className="flex items-center gap-1">
+                                                    <Badge variant="outline" className={getStatusColor(getDisplayStatus(pax))}>
+                                                        {getDisplayStatus(pax)}
+                                                    </Badge>
+                                                    {pax.ticket_status === 'SPLIT' && (
+                                                        <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800">
+                                                            Split
+                                                        </Badge>
+                                                    )}
+                                                    {(pax.ticket_status === 'REISSUE' || booking.booking_type === 'REISSUE') && (
+                                                        <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800">
+                                                            Reissue
+                                                        </Badge>
+                                                    )}
+                                                </div>
                                             </TableCell>
                                             <TableCell className="text-right">{pax.cost_price?.toFixed(2)}</TableCell>
                                             <TableCell className="text-right">{pax.sale_price?.toFixed(2)}</TableCell>
@@ -389,7 +416,7 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                 created_at: undefined,
                                 ticket_status: 'REISSUE', // Default to REISSUE
                                 entry_date: new Date().toISOString().split('T')[0], // New reissue date
-                                ticket_issued_date: '', // Do not inherit parent's old issue date
+                                ticket_issued_date: booking.ticket_issued_date || '', // Default reissue date to original booking
                                 // Reset Financials
                                 fare: 0,
                                 selling_price: 0,
@@ -405,7 +432,8 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                     ticket_number: '', // Reset ticket numbers for reissue
                                     cost_price: 0, // Reset financials? Or keep? Reset is safer to avoid double counting if unchanged.
                                     sale_price: 0,
-                                    ticket_status: 'REISSUE',
+                                    ticket_status: p.ticket_status, // Show original status
+                                    is_reissuing: false, // Default unchecked
                                     // Reset pax refunds
                                     refund_amount_partner: 0,
                                     refund_amount_customer: 0,

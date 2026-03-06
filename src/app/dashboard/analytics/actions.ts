@@ -466,7 +466,7 @@ export async function getPaymentReport(filters: BookingFilters, entityType: 'AGE
         // TopUp = Money In (Balance Increase / Debt Decrease)
         // Deduction = Money Out (Balance Decrease / Debt Increase)
 
-        if (tx.transaction_type === 'TOPUP' || tx.transaction_type === 'REFUND') {
+        if (tx.transaction_type === 'TOPUP' || tx.transaction_type === 'REFUND' || tx.transaction_type === 'ADJUSTMENT') {
             moneyIn += amount
         } else if (tx.transaction_type === 'BOOKING_DEDUCTION') {
             moneyOut += amount

@@ -167,6 +167,8 @@ export function PaymentsTab({
                                                     label = 'BOOKING';
                                                 } else if (tx.transaction_type === 'REFUND') {
                                                     badgeColor = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400';
+                                                } else if (tx.transaction_type === 'ADJUSTMENT') {
+                                                    badgeColor = 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300';
                                                 }
 
                                                 return (
