@@ -37,8 +37,18 @@ export function ExportButton({ filters }: ExportButtonProps) {
 
             // Transform data for Excel
             const excelData = data.map((ticket: any) => {
-                let status = ticket.ticket_status;
-                if (status === 'ISSUED' && (ticket.booking?.booking_type === 'REISSUE' || ticket.booking?.parent_booking_id)) {
+                let status = ticket.ticket_status || 'PENDING';
+
+                if (status === 'SPLIT') {
+                    if (ticket.booking?.booking_type === 'REISSUE') {
+                        status = 'REISSUE';
+                    } else {
+                        status = 'ISSUED';
+                    }
+                } else if (ticket.booking?.booking_type !== 'REISSUE' && status === 'REISSUE') {
+                    // Old original ticket marked as REISSUE
+                    status = 'ISSUED (Reissued)';
+                } else if (status !== 'VOID' && status !== 'REFUNDED' && status !== 'CANCELED' && (ticket.booking?.booking_type === 'REISSUE' || (ticket.booking?.booking_type !== 'CLONE' && !!ticket.booking?.parent_booking_id))) {
                     status = 'REISSUE';
                 }
 

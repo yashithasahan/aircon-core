@@ -453,23 +453,10 @@ export async function getPaymentReport(filters: BookingFilters, entityType: 'AGE
     transactions.forEach((tx: any) => {
         const amount = Number(tx.amount) || 0
 
-        // For Agents:
-        // TOPUP = Payment FROM Agent (Money In)
-        // BOOKING_DEDUCTION = Usage (Money Out / Debt Increase)
-
-        // For Issued Partners:
-        // TOPUP = Payment TO Partner (Money Out from us? No, usually TopUp ADDS balance. So Money IN to *their* account)
-        // Wait, context of "Money In/Out" on dashboard.
-        // Usually "Money In" = Revenue/Cashflow IN. "Money Out" = Expenses.
-
-        // Let's stick to the requested "Top Ups" vs "Usage".
-        // TopUp = Money In (Balance Increase / Debt Decrease)
-        // Deduction = Money Out (Balance Decrease / Debt Increase)
-
         if (tx.transaction_type === 'TOPUP' || tx.transaction_type === 'REFUND' || tx.transaction_type === 'ADJUSTMENT') {
-            moneyIn += amount
+            moneyIn += Math.abs(amount)
         } else if (tx.transaction_type === 'BOOKING_DEDUCTION') {
-            moneyOut += amount
+            moneyOut += Math.abs(amount)
         }
     })
 

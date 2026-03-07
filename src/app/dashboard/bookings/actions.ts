@@ -71,7 +71,7 @@ export async function createBooking(formData: BookingFormData) {
         ? `Booking Re-issuance for PNR ${formData.pnr}`
         : `Booking issuance for PNR ${formData.pnr}`;
 
-    if (['ISSUED', 'REFUNDED', 'REISSUE'].includes(formData.ticket_status || '') && formData.currency !== 'LKR') {
+    if (['ISSUED', 'REFUNDED', 'REISSUE'].includes(formData.ticket_status || '') && formData.currency !== 'LKR' && formData.booking_type !== 'CLONE') {
         const cost = totalFare;
         const price = totalSellingPrice;
 
@@ -106,11 +106,11 @@ export async function createBooking(formData: BookingFormData) {
                 .single()
 
             if (!agError && agent) {
-                updatedAgentBalance = Number(agent.balance) + price;
+                updatedAgentBalance = Number(agent.balance) - price;
 
                 transactionsToInsert.push({
                     agent_id: formData.agent_id,
-                    amount: price,
+                    amount: -price,
                     transaction_type: 'BOOKING_DEDUCTION',
                     description: transactionDesc,
                     reference_id: null,
@@ -224,21 +224,6 @@ export async function createBooking(formData: BookingFormData) {
         }
     }
 
-    // 6.5 Update Parent Booking's Passengers if this is a REISSUE
-    if (formData.booking_type === 'REISSUE' && formData.parent_booking_id && formData.passengers?.length > 0) {
-        const reissuedPaxIds = formData.passengers.map(p => p.passenger_id).filter(Boolean);
-        if (reissuedPaxIds.length > 0) {
-            const { error: updateParentPaxError } = await supabase.from('booking_passengers')
-                .update({ ticket_status: 'REISSUE' })
-                .eq('booking_id', formData.parent_booking_id)
-                .in('passenger_id', reissuedPaxIds);
-
-            if (updateParentPaxError) {
-                console.error('Error updating parent passenger statuses to REISSUE:', updateParentPaxError);
-            }
-        }
-    }
-
     // 7. Sync Passenger Profile
     if (formData.passengers?.length > 0) {
         for (const p of formData.passengers) {
@@ -279,7 +264,16 @@ export async function updateBooking(id: string, formData: BookingFormData) {
             const p = formData.passengers[i];
             if ((p.ticket_status === 'VOID' || p.ticket_status === 'REFUNDED') && p.clone_pnr && p.clone_pnr.trim() !== '') {
                 // Execute the split action sequentially to avoid race conditions on the parent booking metrics
-                await splitTicketToClone(id, (p.passenger_id || p.id) as string, p.clone_pnr.trim(), p.ticket_status);
+                const refundCost = p.ticket_status === 'REFUNDED' && typeof p.refund_amount_partner !== 'undefined' && p.refund_amount_partner !== null
+                    ? Number(p.refund_amount_partner)
+                    : Number(p.cost_price);
+
+                const refundSell = p.ticket_status === 'REFUNDED' && typeof p.refund_amount_customer !== 'undefined' && p.refund_amount_customer !== null
+                    ? Number(p.refund_amount_customer)
+                    : Number(p.sale_price);
+
+                const actionDate = p.ticket_status === 'VOID' ? p.void_date : p.refund_date;
+                await splitTicketToClone(id, (p.passenger_id || p.id) as string, p.clone_pnr.trim(), p.ticket_status, refundCost, refundSell, actionDate);
                 // Mark them as SPLIT in the current form data so the rest of updateBooking handles them correctly
                 p.ticket_status = 'SPLIT';
             }
@@ -541,14 +535,14 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                         if (newAgent) {
                             const { error: debtError } = await supabase
                                 .from('agents')
-                                .update({ balance: Number(newAgent.balance) + newPrice })
+                                .update({ balance: Number(newAgent.balance) - newPrice })
                                 .eq('id', newAgentId)
 
                             if (debtError) throw new Error(`Failed to add agent debt: ${debtError.message}`)
 
                             await supabase.from('credit_transactions').insert([{
                                 agent_id: newAgentId,
-                                amount: newPrice,
+                                amount: -newPrice,
                                 transaction_type: 'BOOKING_DEDUCTION',
                                 description: transactionDesc,
                                 reference_id: id,
@@ -1145,12 +1139,12 @@ export async function deleteBooking(id: string) {
             if (agent) {
                 await supabase
                     .from('agents')
-                    .update({ balance: Number(agent.balance) - price }) // Reduce debt
+                    .update({ balance: Number(agent.balance) + price }) // Increase balance (Refund)
                     .eq('id', booking.agent_id)
 
                 await supabase.from('credit_transactions').insert([{
                     agent_id: booking.agent_id,
-                    amount: -price, // Negative amount = Reduce Debt
+                    amount: price, // Positive amount = Refund / Reduce Debt
                     transaction_type: 'REFUND', // 'REFUND' or 'ADJUSTMENT'
                     description: `Booking deletion reversal for PNR ${booking.pnr}`,
                     reference_id: null,
@@ -1393,6 +1387,8 @@ export async function cloneBookingWithNewStatus(originalBookingId: string, newSt
         ticket_number: p.ticket_number,
         passport_number: p.passport_number,
         passport_expiry: p.passport_expiry,
+        phone_number: p.phone_number,
+        contact_info: p.contact_info,
         sale_price: Number(p.sale_price),
         cost_price: Number(p.cost_price)
     })) : [];
@@ -1455,7 +1451,10 @@ export async function splitTicketToClone(
     originalBookingId: string,
     splitPaxId: string,
     newPnr: string,
-    newStatus: 'VOID' | 'REFUNDED'
+    newStatus: 'VOID' | 'REFUNDED',
+    refundCostAmount?: number,
+    refundSellAmount?: number,
+    actionDate?: string
 ): Promise<{ success: boolean; newBookingId?: string; error?: string }> {
     const supabase = await createClient();
 
@@ -1500,16 +1499,19 @@ export async function splitTicketToClone(
         created_at: timestamp
     }]);
 
+    const appliedCost = refundCostAmount !== undefined ? refundCostAmount : Number(passenger.cost_price);
+    const appliedSell = refundSellAmount !== undefined ? refundSellAmount : Number(passenger.sale_price);
+
     // Reverse financial transactions for the original booking related to this passenger
     if (original.issued_partner_id) {
         const { data: partner } = await supabase.from('issued_partners').select('balance').eq('id', original.issued_partner_id).single();
         if (partner) {
-            await supabase.from('issued_partners').update({ balance: Number(partner.balance) + Number(passenger.cost_price) }).eq('id', original.issued_partner_id);
+            await supabase.from('issued_partners').update({ balance: Number(partner.balance) + appliedCost }).eq('id', original.issued_partner_id);
             await supabase.from('credit_transactions').insert([{
                 issued_partner_id: original.issued_partner_id,
-                amount: Number(passenger.cost_price),
+                amount: appliedCost,
                 transaction_type: 'ADJUSTMENT',
-                description: `Reversal for Split Passenger ${passenger.first_name} ${passenger.surname} (PNR: ${original.pnr})`,
+                description: `Refund/Void Return for Passenger ${passenger.first_name} ${passenger.surname} (PNR: ${original.pnr})`,
                 reference_id: originalBookingId,
                 created_at: timestamp
             }]);
@@ -1519,23 +1521,26 @@ export async function splitTicketToClone(
     if (original.booking_source === 'AGENT' && original.agent_id) {
         const { data: agent } = await supabase.from('agents').select('balance').eq('id', original.agent_id).single();
         if (agent) {
-            await supabase.from('agents').update({ balance: Number(agent.balance) - Number(passenger.sale_price) }).eq('id', original.agent_id);
+            // Refund: agent owes less money, so their balance goes UP (debt reduced)
+            await supabase.from('agents').update({ balance: Number(agent.balance) + appliedSell }).eq('id', original.agent_id);
             await supabase.from('credit_transactions').insert([{
                 agent_id: original.agent_id,
-                amount: -Number(passenger.sale_price),
+                amount: appliedSell, // Positive = money returned to agent
                 transaction_type: 'ADJUSTMENT',
-                description: `Reversal for Split Passenger ${passenger.first_name} ${passenger.surname} (PNR: ${original.pnr})`,
+                description: `Refund/Void Return for Passenger ${passenger.first_name} ${passenger.surname} (PNR: ${original.pnr})`,
                 reference_id: originalBookingId,
                 created_at: timestamp
             }]);
         }
     }
 
+    const dateToUse = actionDate || new Date().toISOString().split('T')[0];
+
     // Now, Create the Clone Booking as a fully independent "CLONE" type booking.
     const newBookingData: BookingFormData = {
         pnr: newPnr,
         airline: original.airline,
-        entry_date: new Date().toISOString().split('T')[0],
+        entry_date: dateToUse,
         departure_date: original.departure_date,
         return_date: original.return_date,
         origin: original.origin,
@@ -1550,11 +1555,11 @@ export async function splitTicketToClone(
         platform: original.platform,
         payment_status: original.payment_status,
         payment_method: original.payment_method,
-        refund_date: newStatus === 'REFUNDED' ? new Date().toISOString().split('T')[0] : undefined,
-        void_date: newStatus === 'VOID' ? new Date().toISOString().split('T')[0] : undefined,
+        refund_date: newStatus === 'REFUNDED' ? dateToUse : undefined,
+        void_date: newStatus === 'VOID' ? dateToUse : undefined,
 
-        fare: Number(passenger.cost_price) || 0,
-        selling_price: Number(passenger.sale_price) || 0,
+        fare: appliedCost,
+        selling_price: appliedSell,
 
         parent_booking_id: originalBookingId, // Link back
 
@@ -1567,11 +1572,13 @@ export async function splitTicketToClone(
             ticket_number: passenger.ticket_number,
             passport_number: passenger.passport_number,
             passport_expiry: passenger.passport_expiry,
-            sale_price: Number(passenger.sale_price),
-            cost_price: Number(passenger.cost_price),
+            phone_number: passenger.phone_number,
+            contact_info: passenger.contact_info,
+            sale_price: appliedSell,
+            cost_price: appliedCost,
             ticket_status: newStatus,
-            void_date: newStatus === 'VOID' ? new Date().toISOString().split('T')[0] : undefined,
-            refund_date: newStatus === 'REFUNDED' ? new Date().toISOString().split('T')[0] : undefined,
+            void_date: newStatus === 'VOID' ? dateToUse : undefined,
+            refund_date: newStatus === 'REFUNDED' ? dateToUse : undefined,
         }]
     };
 
@@ -1620,7 +1627,7 @@ export async function getLinkedBookings(id: string) {
     if (current.parent_booking_id) {
         const { data: parentData } = await supabase
             .from('bookings')
-            .select('id, pnr, ticket_status, airline, booking_source, created_at, fare, selling_price, booking_type, passengers:booking_passengers(passenger_id, ticket_status)') // Includes passenger statuses
+            .select('id, pnr, ticket_status, airline, booking_source, created_at, fare, selling_price, booking_type, passengers:booking_passengers(passenger_id, ticket_status, cost_price, sale_price)') // includes pax costs for Account Summary
             .eq('id', current.parent_booking_id)
             .single()
         parent = parentData
