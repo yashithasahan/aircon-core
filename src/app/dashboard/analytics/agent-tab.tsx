@@ -124,13 +124,13 @@ export function AgentTab({ data, filters = {}, agents = [] }: { data: AgentPerfo
                                     <TableCell className="text-right">{agent.totalBookings}</TableCell>
                                     <TableCell className="text-right">{formatCurrency(agent.totalRevenue)}</TableCell>
                                     <TableCell className="text-right text-green-600">{formatCurrency(agent.totalProfit)}</TableCell>
-                                    <TableCell className="text-right font-bold text-red-600">
+                                    <TableCell className={`text-right font-bold ${agent.totalDue < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                                         {formatCurrency(agent.totalDue)}
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        {agent.totalDue > 1000 ? (
+                                        {agent.totalDue < -1000 ? (
                                             <Badge variant="destructive">High Due</Badge>
-                                        ) : agent.totalDue > 0 ? (
+                                        ) : agent.totalDue < 0 ? (
                                             <Badge variant="outline" className="border-yellow-500 text-yellow-600">Outstanding</Badge>
                                         ) : (
                                             <Badge variant="outline" className="border-green-500 text-green-600">Good</Badge>

@@ -814,8 +814,8 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                                             <SelectItem value="ISSUED">Issued</SelectItem>
                                                             <SelectItem value="VOID">Void</SelectItem>
                                                             <SelectItem value="REFUNDED">Refunded</SelectItem>
-                                                            <SelectItem value="REISSUE">Reissue</SelectItem>
-                                                            <SelectItem value="SPLIT">Split</SelectItem>
+                                                            {field.value === 'REISSUE' && <SelectItem value="REISSUE">Reissue</SelectItem>}
+                                                            {field.value === 'SPLIT' && <SelectItem value="SPLIT">Split</SelectItem>}
                                                         </SelectContent>
                                                     </Select>
                                                     <FormMessage />

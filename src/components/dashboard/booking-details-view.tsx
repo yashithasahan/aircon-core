@@ -53,15 +53,23 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
     const [isEditOpen, setIsEditOpen] = useState(false)
     const [isReissueOpen, setIsReissueOpen] = useState(false)
 
-    // Calculate Totals (Net after refunds)
-    const totalFare = booking.fare || 0;
-    const totalSelling = booking.selling_price || 0;
+    // Calculate Totals
+    // Sum ALL passengers (including SPLIT) so the parent shows gross before refund deduction
+    const totalFare = (booking.passengers && booking.passengers.length > 0)
+        ? booking.passengers.reduce((sum: number, p: any) => sum + (Number(p.cost_price) || 0), 0)
+        : (booking.fare || 0);
+    const totalSelling = (booking.passengers && booking.passengers.length > 0)
+        ? booking.passengers.reduce((sum: number, p: any) => sum + (Number(p.sale_price) || 0), 0)
+        : (booking.selling_price || 0);
 
     const refundPartner = booking.actual_refund_amount || 0;
     const refundCustomer = booking.customer_refund_amount || 0;
 
-    const netCost = totalFare - refundPartner;
-    const netSelling = totalSelling - refundCustomer;
+    // CLONE = refund/void split ticket: partner gives money TO us, we give money TO customer
+    // So cost is negative (income) and selling is negative (expense), profit = |cost| - |selling|
+    const isCloneBooking = booking.booking_type === 'CLONE';
+    const netCost = isCloneBooking ? -(booking.fare || 0) : totalFare - refundPartner;
+    const netSelling = isCloneBooking ? -(booking.selling_price || 0) : totalSelling - refundCustomer;
     const netProfit = netSelling - netCost;
 
     // Helper for Status Color
@@ -78,15 +86,15 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
 
     const getDisplayStatus = (pax: any) => {
         if (pax.ticket_status === 'SPLIT') {
-            const clonePax = linkedBookings.children?.flatMap(c => c.passengers || []).find(cp => cp.passenger_id === pax.passenger_id);
-            if (clonePax && clonePax.ticket_status) {
-                return clonePax.ticket_status;
-            }
-            if (linkedBookings.children?.length === 1 && linkedBookings.children[0].booking_type === 'CLONE') {
-                return linkedBookings.children[0].ticket_status;
-            }
-            return 'SPLIT';
+            // The refund/void details live on the separate clone booking.
+            // Show ISSUED here so the parent booking reads as still active/issued.
+            return 'ISSUED';
         }
+
+        if (booking.booking_type !== 'REISSUE' && pax.ticket_status === 'REISSUE') {
+            return 'ISSUED'; // Fixes old data where parent was forced to REISSUE
+        }
+
         return pax.ticket_status || booking.ticket_status || 'PENDING';
     };
 
@@ -141,39 +149,58 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
             </div>
 
             {/* Reissue Grand Total Summary */}
-            {linkedBookings?.parent && (
-                <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-lg border border-blue-100 dark:border-blue-800">
-                    <h3 className="text-sm font-semibold text-blue-700 dark:text-blue-400 mb-3 flex items-center gap-2">
-                        <Link className="h-4 w-4" /> Account Summary (Total Ticket Value)
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div>
-                            <span className="text-xs text-slate-500 uppercase tracking-wider block">Total Cost</span>
-                            <span className="text-xl font-bold font-mono">
-                                {((Number(linkedBookings.parent.fare) || 0) + totalFare).toFixed(2)}
-                            </span>
-                            <span className="text-xs text-slate-400 block mt-1">
-                                (Parent: {(Number(linkedBookings.parent.fare) || 0).toFixed(2)} + Reissue: {totalFare.toFixed(2)})
-                            </span>
+            {
+                linkedBookings?.parent && (() => {
+                    const isClone = booking.booking_type === 'CLONE';
+                    // For CLONE: use parent's ALL passenger costs (including SPLIT) as the gross base
+                    const parentFare = isClone
+                        ? (linkedBookings.parent.passengers?.reduce((s: number, p: any) => s + (Number(p.cost_price) || 0), 0) || Number(linkedBookings.parent.fare) || 0)
+                        : (Number(linkedBookings.parent.fare) || 0);
+                    const parentSell = isClone
+                        ? (linkedBookings.parent.passengers?.reduce((s: number, p: any) => s + (Number(p.sale_price) || 0), 0) || Number(linkedBookings.parent.selling_price) || 0)
+                        : (Number(linkedBookings.parent.selling_price) || 0);
+                    // CLONE = refund/void split: subtract from parent to show net remaining
+                    // REISSUE = additive: add to parent to show combined cost
+                    const totalCost = isClone ? parentFare - totalFare : parentFare + totalFare;
+                    const totalSell = isClone ? parentSell - totalSelling : parentSell + totalSelling;
+                    const totalProfit = totalSell - totalCost;
+                    const childLabel = isClone ? 'Refund' : 'Reissue';
+                    const sign = isClone ? '−' : '+';
+                    return (
+                        <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-lg border border-blue-100 dark:border-blue-800">
+                            <h3 className="text-sm font-semibold text-blue-700 dark:text-blue-400 mb-3 flex items-center gap-2">
+                                <Link className="h-4 w-4" /> Account Summary (Total Ticket Value)
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div>
+                                    <span className="text-xs text-slate-500 uppercase tracking-wider block">Total Cost</span>
+                                    <span className="text-xl font-bold font-mono">
+                                        {totalCost.toFixed(2)}
+                                    </span>
+                                    <span className="text-xs text-slate-400 block mt-1">
+                                        (Parent: {parentFare.toFixed(2)} {sign} {childLabel}: {totalFare.toFixed(2)})
+                                    </span>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-slate-500 uppercase tracking-wider block">Total Sell</span>
+                                    <span className="text-xl font-bold font-mono">
+                                        {totalSell.toFixed(2)}
+                                    </span>
+                                    <span className="text-xs text-slate-400 block mt-1">
+                                        (Parent: {parentSell.toFixed(2)} {sign} {childLabel}: {totalSelling.toFixed(2)})
+                                    </span>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-slate-500 uppercase tracking-wider block">Total Profit</span>
+                                    <span className={`text-xl font-bold font-mono ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {totalProfit.toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <span className="text-xs text-slate-500 uppercase tracking-wider block">Total Sell</span>
-                            <span className="text-xl font-bold font-mono">
-                                {((Number(linkedBookings.parent.selling_price) || 0) + totalSelling).toFixed(2)}
-                            </span>
-                            <span className="text-xs text-slate-400 block mt-1">
-                                (Parent: {(Number(linkedBookings.parent.selling_price) || 0).toFixed(2)} + Reissue: {totalSelling.toFixed(2)})
-                            </span>
-                        </div>
-                        <div>
-                            <span className="text-xs text-slate-500 uppercase tracking-wider block">Total Profit</span>
-                            <span className={`text-xl font-bold font-mono ${((Number(linkedBookings.parent.selling_price) || 0) + totalSelling) - ((Number(linkedBookings.parent.fare) || 0) + totalFare) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {(((Number(linkedBookings.parent.selling_price) || 0) + totalSelling) - ((Number(linkedBookings.parent.fare) || 0) + totalFare)).toFixed(2)}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            )}
+                    );
+                })()
+            }
 
             {/* Info Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm bg-white dark:bg-slate-950 p-6 rounded-xl border border-slate-200 dark:border-slate-800">
@@ -238,9 +265,11 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                                 <div className="absolute -left-4 top-1/2 w-4 h-[1px] bg-slate-300 dark:bg-slate-700"></div>
                                                 <div className="absolute -left-4 -top-6 bottom-1/2 w-[1px] bg-slate-300 dark:bg-slate-700"></div>
 
-                                                <Badge variant="outline" className="text-slate-500 border-slate-300">
-                                                    {child.booking_type === 'CLONE' ? 'Split (Clone)' : 'Reissue'}
-                                                </Badge>
+                                                {child.booking_type === 'CLONE' ? (
+                                                    <Badge variant="outline" className="text-slate-500 border-slate-300">Split (Clone)</Badge>
+                                                ) : (
+                                                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold" title="Reissued Booking">R</div>
+                                                )}
                                                 <div className="flex-1 grid grid-cols-4 gap-4 text-sm items-center">
                                                     <div className="font-medium">{child.pnr}</div>
                                                     <div className="text-slate-500">{child.airline}</div>
@@ -280,9 +309,6 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                     <TableHead className="text-right">Cost</TableHead>
                                     <TableHead className="text-right">Selling</TableHead>
                                     <TableHead className="text-right">Actions</TableHead>
-                                    {booking.passengers?.some(p => p.ticket_status === 'REFUNDED') && (
-                                        <TableHead className="text-right">Refund</TableHead>
-                                    )}
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -304,11 +330,18 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                                             Split
                                                         </Badge>
                                                     )}
-                                                    {(pax.ticket_status === 'REISSUE' || booking.booking_type === 'REISSUE') && (
-                                                        <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800">
-                                                            Reissue
-                                                        </Badge>
-                                                    )}
+                                                    {(() => {
+                                                        const isReissuedOriginal = linkedBookings?.children?.some(child =>
+                                                            child.booking_type === 'REISSUE' &&
+                                                            child.passengers?.some(cp => cp.passenger_id === pax.passenger_id)
+                                                        );
+                                                        if (isReissuedOriginal) {
+                                                            return (
+                                                                <div className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold" title="Passenger has a Reissued ticket">R</div>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
                                                 </div>
                                             </TableCell>
                                             <TableCell className="text-right">{pax.cost_price?.toFixed(2)}</TableCell>
@@ -316,16 +349,11 @@ export function BookingDetailsView({ booking, history, agents, issuedPartners, p
                                             <TableCell className="text-right">
 
                                             </TableCell>
-                                            {booking.passengers?.some(p => p.ticket_status === 'REFUNDED') && (
-                                                <TableCell className="text-right text-red-600">
-                                                    {pax.ticket_status === 'REFUNDED' ? (pax.refund_amount_customer || 0).toFixed(2) : '-'}
-                                                </TableCell>
-                                            )}
                                         </TableRow>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={booking.passengers?.some(p => p.ticket_status === 'REFUNDED') ? 8 : 7} className="text-center py-8 text-slate-500">No passengers found</TableCell>
+                                        <TableCell colSpan={7} className="text-center py-8 text-slate-500">No passengers found</TableCell>
                                     </TableRow>
                                 )}
                             </TableBody>
