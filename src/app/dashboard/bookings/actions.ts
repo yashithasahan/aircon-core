@@ -276,6 +276,9 @@ export async function updateBooking(id: string, formData: BookingFormData) {
                 await splitTicketToClone(id, (p.passenger_id || p.id) as string, p.clone_pnr.trim(), p.ticket_status, refundCost, refundSell, actionDate);
                 // Mark them as SPLIT in the current form data so the rest of updateBooking handles them correctly
                 p.ticket_status = 'SPLIT';
+                // Clear refund fields — the refund is handled by the clone booking, not the parent
+                p.refund_amount_partner = 0;
+                p.refund_amount_customer = 0;
             }
         }
     }
