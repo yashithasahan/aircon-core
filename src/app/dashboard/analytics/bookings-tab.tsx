@@ -3,19 +3,24 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { AnalyticsSummary } from "./actions"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts"
-import { ReportsTable } from "@/components/dashboard/reports/reports-table" // Changed import
+import { ReportsTable } from "@/components/dashboard/reports/reports-table"
+import { PaginationControls } from "@/components/ui/pagination-controls"
 import { Agent, IssuedPartner, Platform, Passenger } from "@/types"
 
 interface BookingsTabProps {
     summary: AnalyticsSummary
     tickets: any[]
+    ticketCount: number
+    page: number
+    limit: number
     agents: Agent[]
     issuedPartners: IssuedPartner[]
     platforms: Platform[]
 }
 
-export function BookingsTab({ summary, tickets, agents, issuedPartners, platforms }: BookingsTabProps) {
+export function BookingsTab({ summary, tickets, ticketCount, page, limit, agents, issuedPartners, platforms }: BookingsTabProps) {
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
+    const totalPages = Math.ceil((ticketCount || 0) / limit);
 
     return (
         <div className="space-y-6">
@@ -151,16 +156,27 @@ export function BookingsTab({ summary, tickets, agents, issuedPartners, platform
                 </Card>
             </div>
 
-            {/* Tickets List */}
-            <Card className="border-slate-200 dark:border-slate-800 shadow-sm mb-20">
-                <CardHeader>
-                    <CardTitle>Detailed Tickets</CardTitle>
-                    <CardDescription>
-                        List of tickets matching the selected filters.
-                    </CardDescription>
+            <Card className="border-slate-200 dark:border-slate-800 shadow-sm mb-28">
+                <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                        <CardTitle>Detailed Tickets</CardTitle>
+                        <CardDescription>
+                            {`Showing ${tickets.length} of ${ticketCount} tickets matching the selected filters.`}
+                        </CardDescription>
+                    </div>
                 </CardHeader>
                 <CardContent className="p-0">
                     <ReportsTable tickets={tickets} />
+                    {totalPages > 1 && (
+                        <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                            <PaginationControls
+                                currentPage={page}
+                                totalPages={totalPages}
+                                hasNextPage={page < totalPages}
+                                hasPrevPage={page > 1}
+                            />
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 

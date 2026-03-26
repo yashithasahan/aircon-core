@@ -95,6 +95,9 @@ export default async function AnalyticsPage({
                     <BookingsTab
                         summary={summary}
                         tickets={ticketsResult.data}
+                        ticketCount={ticketsResult.count || 0}
+                        page={filters.page}
+                        limit={filters.limit}
                         agents={agents}
                         issuedPartners={issuedPartners}
                         platforms={platforms}

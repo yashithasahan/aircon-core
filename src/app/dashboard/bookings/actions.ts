@@ -1015,11 +1015,9 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
         dbQuery = dbQuery.range(from, to);
     }
 
-    // dbQuery.order('status_date', { ascending: false, foreignTable: 'booking' }) 
-    // ^ Supabase v2 JS cannot easily sort parent rows by joined columns natively without a view.
-    // Instead, we will order by id desc (newest first) to ensure pagination generally gets newest pages,
-    // and then precisely sort by the derived text date in JavaScript.
-    const { data, error, count } = await dbQuery.order('id', { ascending: false })
+    // Sort by created_at for consistent chronological ordering.
+    // UUID-based id ordering is effectively random which causes tickets to appear/disappear across pages.
+    const { data, error, count } = await dbQuery.order('created_at', { ascending: false })
 
     if (error) {
         console.error('Fetch error in getTicketReport:', error)
@@ -1087,7 +1085,7 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
         return dateB - dateA;
     });
 
-    return { data: processedData, count: processedData.length } // Count is now virtual rows
+    return { data: processedData, count: count || processedData.length } // Use Supabase total count for pagination
 }
 
 export async function deleteBooking(id: string) {
