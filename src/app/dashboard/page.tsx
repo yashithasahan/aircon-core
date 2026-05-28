@@ -11,10 +11,12 @@ export default async function DashboardPage({
     searchParams: Promise<{ date?: string }>
 }) {
     const { date: dateParam } = await searchParams;
-    const stats = await getDashboardStats(dateParam);
-    const recentSales = await getRecentSales(dateParam);
-    const agentCredits = await getAgentCreditStats(dateParam);
-    const portfolio = await getFinancialSummary();
+    const [stats, recentSales, agentCredits, portfolio] = await Promise.all([
+        getDashboardStats(dateParam),
+        getRecentSales(dateParam),
+        getAgentCreditStats(dateParam),
+        getFinancialSummary()
+    ]);
 
     // Calculate display label for current selection
     const displayDate = dateParam

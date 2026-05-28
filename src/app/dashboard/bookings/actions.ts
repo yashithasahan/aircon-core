@@ -224,25 +224,24 @@ export async function createBooking(formData: BookingFormData) {
         }
     }
 
-    // 7. Sync Passenger Profile
+    // 7. Sync Passenger Profiles (parallel)
     if (formData.passengers?.length > 0) {
-        for (const p of formData.passengers) {
-            if (p.passenger_id) {
-                const { error: updateError } = await supabase.from('passengers').update({
-                    passport_number: p.passport_number,
-                    passport_expiry: p.passport_expiry ? new Date(p.passport_expiry).toISOString() : null,
-                    phone_number: p.phone_number,
-                    contact_info: p.contact_info,
-                    title: p.title,
-                    first_name: p.first_name,
-                    surname: p.surname
-                }).eq('id', p.passenger_id);
+        const profileUpdates = formData.passengers
+            .filter(p => p.passenger_id)
+            .map(p => supabase.from('passengers').update({
+                passport_number: p.passport_number,
+                passport_expiry: p.passport_expiry ? new Date(p.passport_expiry).toISOString() : null,
+                phone_number: p.phone_number,
+                contact_info: p.contact_info,
+                title: p.title,
+                first_name: p.first_name,
+                surname: p.surname
+            }).eq('id', p.passenger_id));
 
-                if (updateError) {
-                    console.error(`Failed to update passenger profile for ${p.passenger_id}:`, updateError);
-                }
-            }
-        }
+        const results = await Promise.all(profileUpdates);
+        results.forEach((r, i) => {
+            if (r.error) console.error(`Failed to update passenger profile:`, r.error);
+        });
     }
 
     revalidatePath('/dashboard/bookings')
@@ -806,25 +805,24 @@ export async function updateBooking(id: string, formData: BookingFormData) {
         }
     }
 
-    // 5. Sync Passenger Profile
+    // 5. Sync Passenger Profiles (parallel)
     if (formData.passengers?.length > 0) {
-        for (const p of formData.passengers) {
-            if (p.passenger_id) {
-                const { error: updateError } = await supabase.from('passengers').update({
-                    passport_number: p.passport_number,
-                    passport_expiry: p.passport_expiry ? new Date(p.passport_expiry).toISOString() : null,
-                    phone_number: p.phone_number,
-                    contact_info: p.contact_info,
-                    title: p.title,
-                    first_name: p.first_name,
-                    surname: p.surname
-                }).eq('id', p.passenger_id);
+        const profileUpdates = formData.passengers
+            .filter(p => p.passenger_id)
+            .map(p => supabase.from('passengers').update({
+                passport_number: p.passport_number,
+                passport_expiry: p.passport_expiry ? new Date(p.passport_expiry).toISOString() : null,
+                phone_number: p.phone_number,
+                contact_info: p.contact_info,
+                title: p.title,
+                first_name: p.first_name,
+                surname: p.surname
+            }).eq('id', p.passenger_id));
 
-                if (updateError) {
-                    console.error(`Failed to update passenger profile for ${p.passenger_id}:`, updateError);
-                }
-            }
-        }
+        const results = await Promise.all(profileUpdates);
+        results.forEach((r, i) => {
+            if (r.error) console.error(`Failed to update passenger profile:`, r.error);
+        });
     }
 
     revalidatePath('/dashboard/bookings')
@@ -902,12 +900,12 @@ export async function getBookings(filters: BookingFilters | string = {}) {
         dbQuery = dbQuery.eq('issued_partner_id', issuedPartnerId)
     }
 
-    // Pagination
-    if (page && limit) {
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
-        dbQuery = dbQuery.range(from, to);
-    }
+    // Pagination — default to first 50 if no explicit pagination to prevent unbounded fetches
+    const effectivePage = page || 1;
+    const effectiveLimit = limit || 50;
+    const from = (effectivePage - 1) * effectiveLimit;
+    const to = from + effectiveLimit - 1;
+    dbQuery = dbQuery.range(from, to);
 
     const { data, error, count } = await dbQuery.order('status_date', { ascending: false })
 
@@ -1008,12 +1006,12 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
     // Filter out deleted bookings (safeguard)
     dbQuery = dbQuery.filter('booking.is_deleted', 'eq', false);
 
-    // Pagination
-    if (page && limit) {
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
-        dbQuery = dbQuery.range(from, to);
-    }
+    // Pagination — default to first 50 if no explicit pagination to prevent unbounded fetches
+    const effectivePage = page || 1;
+    const effectiveLimit = limit || 50;
+    const from = (effectivePage - 1) * effectiveLimit;
+    const to = from + effectiveLimit - 1;
+    dbQuery = dbQuery.range(from, to);
 
     // Sort by created_at for consistent chronological ordering.
     // UUID-based id ordering is effectively random which causes tickets to appear/disappear across pages.

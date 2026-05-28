@@ -92,9 +92,14 @@ export async function getAnalyticsSummary(filters: BookingFilters): Promise<Anal
     // Safety: exclude deleted bookings in ticket query too
     ticketQuery = ticketQuery.filter('booking.is_deleted', 'eq', false);
 
-    // Execute Queries
-    const { data: bookings, error: bookingError } = await bookingQuery;
-    const { data: tickets, count: ticketCount, error: ticketError } = await ticketQuery;
+    // Safety limits to prevent unbounded fetches
+    bookingQuery = bookingQuery.limit(1000);
+    ticketQuery = ticketQuery.limit(1000);
+
+    // Execute Queries in parallel
+    const [bookingResult, ticketResult] = await Promise.all([bookingQuery, ticketQuery]);
+    const { data: bookings, error: bookingError } = bookingResult;
+    const { data: tickets, count: ticketCount, error: ticketError } = ticketResult;
 
     if (bookingError || ticketError) {
         console.error('Error fetching analytics:', bookingError, ticketError);
@@ -228,6 +233,7 @@ export async function getAgentPerformanceReport(filters: BookingFilters): Promis
 
     if (filters.startDate) query = query.gte('status_date', filters.startDate)
     if (filters.endDate) query = query.lte('status_date', filters.endDate)
+    query = query.limit(500)
 
     const { data: bookings } = await query
 
@@ -294,6 +300,7 @@ export async function getIssuedPartnerPerformance(filters: BookingFilters): Prom
     if (filters.endDate) query = query.lte('status_date', filters.endDate)
     // Cost usually applies to ISSUED tickets
     query = query.eq('ticket_status', 'ISSUED')
+    query = query.limit(500)
 
     const { data: bookings } = await query
 
@@ -438,6 +445,8 @@ export async function getPaymentReport(filters: BookingFilters, entityType: 'AGE
     if (filters.transactionType && filters.transactionType !== 'ALL') {
         query = query.eq('transaction_type', filters.transactionType)
     }
+
+    query = query.limit(500)
 
     const { data: transactions, error } = await query
 
