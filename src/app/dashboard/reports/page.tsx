@@ -42,52 +42,27 @@ export default async function ReportsPage({
         limit
     };
 
-    // Parallel data fetching
-    // Get general data
-    const [agents, issuedPartners, platforms] = await Promise.all([
-        getAgents(),
-        getIssuedPartners(),
-        getPlatforms()
-    ]);
-
-    // Conditionals based on active tab? or fetch all?
-    // Let's fetch both to be safe or optimize later. 
-    // Pagination applies to both, but they might need separate pagination states in URL...
-    // For now, sharing pagination state (might reset when switching tabs if not handled).
-
-    const { data: tickets, count: ticketCount } = await getTicketReport(filters);
-
-    // For payments, we need to decide if we fetch AGENT or PARTNER or BOTH.
-    // The requirement says "export all... by agent OR issued partner".
-    // If we have filters, we respect them. If no entity filter, maybe we show all?
-    // getPaymentReport currently takes ONE type. 
-    // We can fetch both and merge them in UI if "ALL" logic is needed, 
-    // or just fetch what fits the filter.
-
-    // Let's fetch both and combine for the general view, similar to PaymentExportButton logic.
-    // BUT getPaymentReport doesn't support pagination yet! It limits to 20 or similar hardcoded in some places?
-    // Checked getPaymentReport: it applies filters but NO LIMIT/PAGE in the query?
-    // Wait, getPaymentReport in analytics/actions.ts:
-    // .order('created_at', { ascending: false }) -> No .range()!
-    // It returns ALL matching transactions? That might be heavy.
-    // Let's assume for "Export" tab we want a list.
-
-    // We should probably optimize `getPaymentReport` to support pagination if the list grows.
-    // For now, let's fetch 'AGENT' and 'ISSUED_PARTNER' if applicable.
-
-    let paymentTransactions: any[] = [];
-
+    // Parallel data fetching for all required data
     const fetchAgents = !filters.issuedPartnerId || filters.agentId;
     const fetchPartners = !filters.agentId || filters.issuedPartnerId;
 
+    const [agents, issuedPartners, platforms, { data: tickets, count: ticketCount }, agentPayments, partnerPayments] = await Promise.all([
+        getAgents(),
+        getIssuedPartners(),
+        getPlatforms(),
+        getTicketReport(filters),
+        fetchAgents ? getPaymentReport(filters, 'AGENT') : Promise.resolve({ moneyIn: 0, moneyOut: 0, netFlow: 0, transactions: [] }),
+        fetchPartners ? getPaymentReport(filters, 'ISSUED_PARTNER') : Promise.resolve({ moneyIn: 0, moneyOut: 0, netFlow: 0, transactions: [] })
+    ]);
+
+    let paymentTransactions: any[] = [];
+
     if (fetchAgents) {
-        const results = await getPaymentReport(filters, 'AGENT');
-        paymentTransactions = [...paymentTransactions, ...results.transactions.map((t: any) => ({ ...t, _entityType: 'AGENT' }))];
+        paymentTransactions = [...paymentTransactions, ...agentPayments.transactions.map((t: any) => ({ ...t, _entityType: 'AGENT' }))];
     }
 
     if (fetchPartners) {
-        const results = await getPaymentReport(filters, 'ISSUED_PARTNER');
-        paymentTransactions = [...paymentTransactions, ...results.transactions.map((t: any) => ({ ...t, _entityType: 'ISSUED_PARTNER' }))];
+        paymentTransactions = [...paymentTransactions, ...partnerPayments.transactions.map((t: any) => ({ ...t, _entityType: 'ISSUED_PARTNER' }))];
     }
 
     // Sort combined

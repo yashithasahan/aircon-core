@@ -100,21 +100,31 @@ export async function getAgentCreditStats(dateStr?: string) {
     const startOfMonth = new Date(validDate.getFullYear(), validDate.getMonth(), 1)
     const endOfMonth = new Date(validDate.getFullYear(), validDate.getMonth() + 1, 1)
 
-    const stats = await Promise.all(types.map(async (type) => {
-        const { count, error: countError } = await supabase
-            .from('booking_passengers')
-            .select('id, booking:bookings!inner(issued_partner_id, ticket_status, status_date, is_deleted, currency)', { count: 'exact', head: true }) // count only
-            .eq('booking.issued_partner_id', type.id)
-            .eq('booking.ticket_status', 'ISSUED')
-            .gte('booking.status_date', startOfMonth.toISOString())
-            .lt('booking.status_date', endOfMonth.toISOString())
-            .neq('booking.currency', 'LKR')
-            .eq('booking.is_deleted', false)
+    // Single query: fetch all booking_passengers for ISSUED bookings in date range
+    // with the issued_partner_id embedded, then count client-side
+    const { data: tickets, error: ticketError } = await supabase
+        .from('booking_passengers')
+        .select('id, booking:bookings!inner(issued_partner_id, ticket_status, status_date, is_deleted, currency)')
+        .eq('booking.ticket_status', 'ISSUED')
+        .gte('booking.status_date', startOfMonth.toISOString())
+        .lt('booking.status_date', endOfMonth.toISOString())
+        .neq('booking.currency', 'LKR')
+        .eq('booking.is_deleted', false)
 
-        return {
-            ...type,
-            todayCount: count || 0
-        }
+    // Build a count map by issued_partner_id
+    const countMap = new Map<string, number>()
+    if (!ticketError && tickets) {
+        tickets.forEach((t: any) => {
+            const partnerId = t.booking?.issued_partner_id
+            if (partnerId) {
+                countMap.set(partnerId, (countMap.get(partnerId) || 0) + 1)
+            }
+        })
+    }
+
+    const stats = types.map((type) => ({
+        ...type,
+        todayCount: countMap.get(type.id) || 0
     }))
 
     return stats

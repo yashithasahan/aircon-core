@@ -47,11 +47,13 @@ export default async function BookingsPage({
         issuedPartnerId: (await searchParams)?.issuedPartnerId,
     }
 
-    const { data: bookings } = await getBookings(filters);
-    const passengers = await getPassengers();
-    const agents = await getAgents();
-    const issuedPartners = await getIssuedPartners();
-    const platforms = await getPlatforms();
+    const [{ data: bookings }, passengers, agents, issuedPartners, platforms] = await Promise.all([
+        getBookings({ ...filters, page: 1, limit: 50 }),
+        getPassengers(),
+        getAgents(),
+        getIssuedPartners(),
+        getPlatforms()
+    ]);
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
