@@ -9,7 +9,8 @@ export async function topUpCredit(
     amount: number,
     description?: string,
     customDate?: string
-) {
+): Promise<{ error?: string }> {
+  try {
     const supabase = await createClient()
 
     const table = entityType === 'issued_partner' ? 'issued_partners' : 'agents';
@@ -22,7 +23,7 @@ export async function topUpCredit(
         .single()
 
     if (btError || !entity) {
-        throw new Error(`${entityType === 'issued_partner' ? 'Issuing Partner' : 'Agent'} not found`);
+        return { error: `${entityType === 'issued_partner' ? 'Issuing Partner' : 'Agent'} not found` };
     }
 
     const newBalance = entityType === 'agent'
@@ -36,7 +37,7 @@ export async function topUpCredit(
         .eq('id', id)
 
     if (updateError) {
-        throw new Error('Failed to update balance')
+        return { error: 'Failed to update balance' }
     }
 
     // 3. Log Transaction
@@ -63,6 +64,11 @@ export async function topUpCredit(
 
     revalidatePath('/dashboard/payments')
     revalidatePath('/dashboard')
+    return {}
+  } catch (error: any) {
+    console.error('topUpCredit error:', error)
+    return { error: error.message || 'Failed to process top-up' }
+  }
 }
 
 export async function getAgentsWithBalance() {
@@ -109,7 +115,8 @@ export async function getTransactions(
     return data
 }
 
-export async function updateTransactionAmount(transactionId: string, newAmount: number) {
+export async function updateTransactionAmount(transactionId: string, newAmount: number): Promise<{ error?: string }> {
+  try {
     const supabase = await createClient()
 
     // 1. Get original transaction
@@ -120,17 +127,17 @@ export async function updateTransactionAmount(transactionId: string, newAmount: 
         .single()
 
     if (fetchError || !transaction) {
-        throw new Error("Transaction not found")
+        return { error: 'Transaction not found' }
     }
 
     if (transaction.transaction_type !== 'TOPUP') {
-        throw new Error("Only Top-up/Payment transactions can be edited")
+        return { error: 'Only Top-up/Payment transactions can be edited' }
     }
 
     const oldAmount = Number(transaction.amount)
     const diff = newAmount - oldAmount
 
-    if (diff === 0) return; // No change
+    if (diff === 0) return {}; // No change
 
     // 2. Identify Entity
     let entityType: 'issued_partner' | 'agent'
@@ -143,7 +150,7 @@ export async function updateTransactionAmount(transactionId: string, newAmount: 
         entityType = 'agent'
         entityId = transaction.agent_id
     } else {
-        throw new Error("Transaction has no associated entity")
+        return { error: 'Transaction has no associated entity' }
     }
 
     const table = entityType === 'issued_partner' ? 'issued_partners' : 'agents'
@@ -156,7 +163,7 @@ export async function updateTransactionAmount(transactionId: string, newAmount: 
         .single()
 
     if (entityError || !entity) {
-        throw new Error("Entity not found")
+        return { error: 'Entity not found' }
     }
 
     // 4. Calculate New Entity Balance
@@ -183,7 +190,7 @@ export async function updateTransactionAmount(transactionId: string, newAmount: 
         .update({ amount: newAmount })
         .eq('id', transactionId)
 
-    if (updateTxError) throw new Error("Failed to update transaction")
+    if (updateTxError) return { error: 'Failed to update transaction' }
 
     // 6. Update Entity Balance
     const { error: updateEntityError } = await supabase
@@ -195,9 +202,14 @@ export async function updateTransactionAmount(transactionId: string, newAmount: 
         // Rollback transaction update? Ideally use SQL transaction/RPC.
         // For now, simpler error logic implies manual fix if it fails halfway.
         console.error("CRITICAL: Failed to update entity balance after transaction update.", updateEntityError)
-        throw new Error("Failed to update balance")
+        return { error: 'Failed to update balance' }
     }
 
     revalidatePath('/dashboard/payments')
     revalidatePath('/dashboard')
+    return {}
+  } catch (error: any) {
+    console.error('updateTransactionAmount error:', error)
+    return { error: error.message || 'Failed to update transaction' }
+  }
 }

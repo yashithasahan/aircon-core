@@ -6,7 +6,8 @@ import { redirect } from 'next/navigation'
 import { BookingFormData, BookingHistory, PassengerDetail } from '@/types'
 
 
-export async function createBooking(formData: BookingFormData) {
+export async function createBooking(formData: BookingFormData): Promise<{ error?: string }> {
+  try {
     const supabase = await createClient()
 
     // 1. Calculate Totals & Prepare Data
@@ -249,19 +250,49 @@ export async function createBooking(formData: BookingFormData) {
     revalidatePath('/dashboard/payments')
     revalidatePath('/dashboard/analytics')
     revalidatePath('/dashboard/reports')
+    return {}
+  } catch (error: any) {
+    console.error('createBooking error:', error)
+    return { error: error.message || 'Failed to create booking' }
+  }
 }
 
 
-export async function updateBooking(id: string, formData: BookingFormData) {
+export async function updateBooking(id: string, formData: BookingFormData): Promise<{ error?: string }> {
+  try {
     const supabase = await createClient()
 
     // 0. Intercept Splits (Ghost Tickets)
     // If a passenger's status was changed to VOID/REFUNDED and a clone_pnr was provided,
     // we split them off into a new Clone booking before doing the standard update.
     if (formData.booking_type !== 'CLONE' && formData.passengers?.length > 0) {
+        // Pre-fetch current DB passengers to avoid re-splitting already processed passengers
+        const { data: currentDbBooking } = await supabase
+            .from('bookings')
+            .select('passengers:booking_passengers(*)')
+            .eq('id', id)
+            .single();
+
+        const dbPassengers = (currentDbBooking as any)?.passengers || [];
+
         for (let i = 0; i < formData.passengers.length; i++) {
             const p = formData.passengers[i];
             if ((p.ticket_status === 'VOID' || p.ticket_status === 'REFUNDED') && p.clone_pnr && p.clone_pnr.trim() !== '') {
+                // Check if this passenger was ALREADY split/voided/refunded in the DB
+                // If so, skip the split — it was already processed in a previous save
+                const dbPax = dbPassengers.find((dp: any) =>
+                    (p.passenger_id && dp.passenger_id === p.passenger_id) ||
+                    (p.id && dp.id === p.id) ||
+                    (dp.ticket_number && dp.ticket_number === p.ticket_number)
+                );
+                if (dbPax && ['SPLIT', 'VOID', 'REFUNDED'].includes(dbPax.ticket_status)) {
+                    // Already processed — just mark as SPLIT in form data and skip
+                    p.ticket_status = 'SPLIT';
+                    p.refund_amount_partner = 0;
+                    p.refund_amount_customer = 0;
+                    continue;
+                }
+
                 // Execute the split action sequentially to avoid race conditions on the parent booking metrics
                 const refundCost = p.ticket_status === 'REFUNDED' && typeof p.refund_amount_partner !== 'undefined' && p.refund_amount_partner !== null
                     ? Number(p.refund_amount_partner)
@@ -830,6 +861,11 @@ export async function updateBooking(id: string, formData: BookingFormData) {
     revalidatePath('/dashboard/payments')
     revalidatePath('/dashboard/analytics')
     revalidatePath('/dashboard/reports')
+    return {}
+  } catch (error: any) {
+    console.error('updateBooking error:', error)
+    return { error: error.message || 'Failed to update booking' }
+  }
 }
 
 
@@ -1086,7 +1122,8 @@ export async function getTicketReport(filters: BookingFilters | string = {}) {
     return { data: processedData, count: count || processedData.length } // Use Supabase total count for pagination
 }
 
-export async function deleteBooking(id: string) {
+export async function deleteBooking(id: string): Promise<{ error?: string }> {
+  try {
     const supabase = await createClient()
 
     // 1. Fetch booking to check status and reverse credits if needed
@@ -1159,10 +1196,15 @@ export async function deleteBooking(id: string) {
         .eq('id', id)
 
     if (error) {
-        throw new Error(error.message)
+        return { error: error.message || 'Failed to delete booking' }
     }
 
     revalidatePath('/dashboard/bookings')
+    return {}
+  } catch (error: any) {
+    console.error('deleteBooking error:', error)
+    return { error: error.message || 'Failed to delete booking' }
+  }
 }
 
 // --- Status & History ---

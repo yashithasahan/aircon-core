@@ -47,7 +47,11 @@ export function EntityDialog({
 
         setLoading(true)
         try {
-            await onSave(name, entityId)
+            const result = await onSave(name, entityId)
+            if (result?.error) {
+                toast.error(result.error)
+                return
+            }
             toast.success(`${entityName} ${mode === 'create' ? 'created' : 'updated'} successfully`)
             onOpenChange(false)
         } catch (error: any) {

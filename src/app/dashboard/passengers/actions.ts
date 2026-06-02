@@ -60,7 +60,7 @@ export async function createPassenger(formData: FormData) {
     return { data }
 }
 
-export async function deletePassenger(id: string) {
+export async function deletePassenger(id: string): Promise<{ error?: string }> {
     const supabase = await createClient()
 
     const { error } = await supabase
@@ -69,8 +69,9 @@ export async function deletePassenger(id: string) {
         .eq('id', id)
 
     if (error) {
-        throw new Error(error.message)
+        return { error: error.message || 'Failed to delete passenger' }
     }
 
     revalidatePath('/dashboard/passengers')
+    return {}
 }

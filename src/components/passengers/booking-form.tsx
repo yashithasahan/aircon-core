@@ -428,12 +428,22 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
             }
 
             if (bookingId) {
-                await updateBooking(bookingId, bookingData)
+                const result = await updateBooking(bookingId, bookingData)
+                if (result?.error) {
+                    toast.error(result.error)
+                    setLoading(false)
+                    return
+                }
                 router.refresh()
                 toast.success("Booking updated successfully")
                 if (onSuccess) onSuccess()
             } else {
-                await createBooking(bookingData)
+                const result = await createBooking(bookingData)
+                if (result?.error) {
+                    toast.error(result.error)
+                    setLoading(false)
+                    return
+                }
                 if (addMoreModeRef.current) {
                     // Reset passengers only? Or full reset?
                     // Usually "Add Another" means keep context but clear specific pax details?
