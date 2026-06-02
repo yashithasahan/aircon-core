@@ -64,12 +64,16 @@ export function EntityList({ title, data, onCreate, onUpdate, onDelete }: Entity
     const confirmDelete = async () => {
         if (!entityToDelete) return
         try {
-            await onDelete(entityToDelete.id)
+            const result = await onDelete(entityToDelete.id)
+            if (result?.error) {
+                toast.error(result.error)
+                return
+            }
             toast.success("Deleted successfully")
             setDeleteOpen(false)
             router.refresh()
         } catch (error: any) {
-            toast.error("Failed to delete. It might be in use.")
+            toast.error(error.message || "Failed to delete. It might be in use.")
         }
     }
 
@@ -122,8 +126,10 @@ export function EntityList({ title, data, onCreate, onUpdate, onDelete }: Entity
                 open={createOpen}
                 onOpenChange={setCreateOpen}
                 onSave={async (name) => {
-                    await onCreate(name)
+                    const result = await onCreate(name)
+                    if (result?.error) return result
                     router.refresh()
+                    return result
                 }}
             />
 
@@ -138,8 +144,10 @@ export function EntityList({ title, data, onCreate, onUpdate, onDelete }: Entity
                     onOpenChange={setEditOpen}
                     onSave={async (name, id) => {
                         if (id) {
-                            await onUpdate(id, name)
+                            const result = await onUpdate(id, name)
+                            if (result?.error) return result
                             router.refresh()
+                            return result
                         }
                     }}
                 />

@@ -16,7 +16,7 @@ import {
 
 interface DeleteButtonProps {
     id: string
-    onDelete: (id: string) => Promise<void>
+    onDelete: (id: string) => Promise<{ error?: string } | void>
     itemName?: string
 }
 
@@ -27,7 +27,11 @@ export function DeleteButton({ id, onDelete, itemName = "item" }: DeleteButtonPr
     async function handleDelete() {
         setLoading(true)
         try {
-            await onDelete(id) // Server action
+            const result = await onDelete(id) // Server action
+            if (result && 'error' in result && result.error) {
+                toast.error(result.error)
+                return
+            }
             setOpen(false)
             toast.success(`${itemName} deleted successfully`)
         } catch (error: any) {

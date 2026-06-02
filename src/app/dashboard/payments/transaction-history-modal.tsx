@@ -79,7 +79,11 @@ export function TransactionHistoryModal({ id, name, type, children }: Transactio
     async function saveEdit(txId: string) {
         setUpdating(true)
         try {
-            await updateTransactionAmount(txId, Number(editAmount))
+            const result = await updateTransactionAmount(txId, Number(editAmount))
+            if (result?.error) {
+                toast.error(result.error)
+                return
+            }
             toast.success("Transaction updated")
             setEditingId(null)
             fetchTransactions() // Refresh list and potentially balance (if parent reinforces)
