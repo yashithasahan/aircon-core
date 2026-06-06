@@ -51,7 +51,8 @@ export async function createBooking(formData: BookingFormData): Promise<{ error?
 
     // 3. Check for Duplicate PNR + Status combo (on Bookings table)
     // Allow multiple REISSUEs for the same PNR (a ticket can be reissued multiple times)
-    if (formData.pnr && formData.ticket_status !== 'REISSUE') {
+    // Allow CLONE bookings to share PNRs (e.g. split refunds, full PNR refunds)
+    if (formData.pnr && formData.ticket_status !== 'REISSUE' && formData.booking_type !== 'CLONE') {
         const { data: existingPnrBookings } = await supabase
             .from('bookings')
             .select('id')
@@ -275,40 +276,74 @@ export async function updateBooking(id: string, formData: BookingFormData): Prom
 
         const dbPassengers = (currentDbBooking as any)?.passengers || [];
 
-        for (let i = 0; i < formData.passengers.length; i++) {
-            const p = formData.passengers[i];
-            if ((p.ticket_status === 'VOID' || p.ticket_status === 'REFUNDED') && p.clone_pnr && p.clone_pnr.trim() !== '') {
-                // Check if this passenger was ALREADY split/voided/refunded in the DB
-                // If so, skip the split — it was already processed in a previous save
-                const dbPax = dbPassengers.find((dp: any) =>
-                    (p.passenger_id && dp.passenger_id === p.passenger_id) ||
-                    (p.id && dp.id === p.id) ||
-                    (dp.ticket_number && dp.ticket_number === p.ticket_number)
-                );
-                if (dbPax && ['SPLIT', 'VOID', 'REFUNDED'].includes(dbPax.ticket_status)) {
-                    // Already processed — just mark as SPLIT in form data and skip
-                    p.ticket_status = 'SPLIT';
-                    p.refund_amount_partner = 0;
-                    p.refund_amount_customer = 0;
-                    continue;
-                }
+        // Detect FULL PNR REFUND: ALL passengers are REFUNDED and none have a clone_pnr
+        // This means the user changed the booking-level status to REFUNDED (not individual splits)
+        const allPassengersRefunded = formData.passengers.every(p => p.ticket_status === 'REFUNDED');
+        const noClonePnrs = formData.passengers.every(p => !p.clone_pnr || p.clone_pnr.trim() === '');
+        const anyAlreadySplit = dbPassengers.length > 0 && dbPassengers.every((dp: any) => ['SPLIT', 'VOID', 'REFUNDED'].includes(dp.ticket_status));
 
-                // Execute the split action sequentially to avoid race conditions on the parent booking metrics
-                const refundCost = p.ticket_status === 'REFUNDED' && typeof p.refund_amount_partner !== 'undefined' && p.refund_amount_partner !== null
+        if (allPassengersRefunded && noClonePnrs && !anyAlreadySplit) {
+            // FULL PNR REFUND — use the dedicated function instead of per-passenger splits
+            const refundDate = formData.refund_date || formData.passengers.find(p => p.refund_date)?.refund_date || new Date().toISOString().split('T')[0];
+
+            // Collect per-passenger refund amounts (user may have customized them)
+            const passengerRefunds = formData.passengers.map(p => ({
+                refund_amount_partner: (typeof p.refund_amount_partner !== 'undefined' && p.refund_amount_partner !== null && Number(p.refund_amount_partner) > 0)
                     ? Number(p.refund_amount_partner)
-                    : Number(p.cost_price);
-
-                const refundSell = p.ticket_status === 'REFUNDED' && typeof p.refund_amount_customer !== 'undefined' && p.refund_amount_customer !== null
+                    : Number(p.cost_price),
+                refund_amount_customer: (typeof p.refund_amount_customer !== 'undefined' && p.refund_amount_customer !== null && Number(p.refund_amount_customer) > 0)
                     ? Number(p.refund_amount_customer)
-                    : Number(p.sale_price);
+                    : Number(p.sale_price),
+            }));
 
-                const actionDate = p.ticket_status === 'VOID' ? p.void_date : p.refund_date;
-                await splitTicketToClone(id, (p.passenger_id || p.id) as string, p.clone_pnr.trim(), p.ticket_status, refundCost, refundSell, actionDate);
-                // Mark them as SPLIT in the current form data so the rest of updateBooking handles them correctly
+            const totalRefundPartner = passengerRefunds.reduce((sum, r) => sum + r.refund_amount_partner, 0);
+            const totalRefundCustomer = passengerRefunds.reduce((sum, r) => sum + r.refund_amount_customer, 0);
+
+            await refundEntirePnr(id, totalRefundPartner, totalRefundCustomer, refundDate, passengerRefunds);
+
+            // Mark all passengers as SPLIT so the rest of updateBooking handles them correctly
+            for (const p of formData.passengers) {
                 p.ticket_status = 'SPLIT';
-                // Clear refund fields — the refund is handled by the clone booking, not the parent
                 p.refund_amount_partner = 0;
                 p.refund_amount_customer = 0;
+            }
+        } else {
+            // INDIVIDUAL SPLITS — existing per-passenger clone flow
+            for (let i = 0; i < formData.passengers.length; i++) {
+                const p = formData.passengers[i];
+                if ((p.ticket_status === 'VOID' || p.ticket_status === 'REFUNDED') && p.clone_pnr && p.clone_pnr.trim() !== '') {
+                    // Check if this passenger was ALREADY split/voided/refunded in the DB
+                    // If so, skip the split — it was already processed in a previous save
+                    const dbPax = dbPassengers.find((dp: any) =>
+                        (p.passenger_id && dp.passenger_id === p.passenger_id) ||
+                        (p.id && dp.id === p.id) ||
+                        (dp.ticket_number && dp.ticket_number === p.ticket_number)
+                    );
+                    if (dbPax && ['SPLIT', 'VOID', 'REFUNDED'].includes(dbPax.ticket_status)) {
+                        // Already processed — just mark as SPLIT in form data and skip
+                        p.ticket_status = 'SPLIT';
+                        p.refund_amount_partner = 0;
+                        p.refund_amount_customer = 0;
+                        continue;
+                    }
+
+                    // Execute the split action sequentially to avoid race conditions on the parent booking metrics
+                    const refundCost = p.ticket_status === 'REFUNDED' && typeof p.refund_amount_partner !== 'undefined' && p.refund_amount_partner !== null
+                        ? Number(p.refund_amount_partner)
+                        : Number(p.cost_price);
+
+                    const refundSell = p.ticket_status === 'REFUNDED' && typeof p.refund_amount_customer !== 'undefined' && p.refund_amount_customer !== null
+                        ? Number(p.refund_amount_customer)
+                        : Number(p.sale_price);
+
+                    const actionDate = p.ticket_status === 'VOID' ? p.void_date : p.refund_date;
+                    await splitTicketToClone(id, (p.passenger_id || p.id) as string, p.clone_pnr.trim(), p.ticket_status, refundCost, refundSell, actionDate);
+                    // Mark them as SPLIT in the current form data so the rest of updateBooking handles them correctly
+                    p.ticket_status = 'SPLIT';
+                    // Clear refund fields — the refund is handled by the clone booking, not the parent
+                    p.refund_amount_partner = 0;
+                    p.refund_amount_customer = 0;
+                }
             }
         }
     }
@@ -1621,6 +1656,148 @@ export async function splitTicketToClone(
             void_date: newStatus === 'VOID' ? dateToUse : undefined,
             refund_date: newStatus === 'REFUNDED' ? dateToUse : undefined,
         }]
+    };
+
+    await createBooking(newBookingData);
+    return { success: true };
+}
+
+/**
+ * Refund an entire PNR (all passengers at once).
+ * Creates a single CLONE booking with REFUNDED status — no individual clone PNRs needed.
+ * Reverses financial transactions for the full booking.
+ */
+export async function refundEntirePnr(
+    originalBookingId: string,
+    totalRefundPartner: number,
+    totalRefundCustomer: number,
+    refundDate: string,
+    passengerRefunds?: { refund_amount_partner: number; refund_amount_customer: number }[]
+): Promise<{ success: boolean; newBookingId?: string; error?: string }> {
+    const supabase = await createClient();
+
+    // 1. Get original booking with ALL passengers
+    const { data: original, error } = await supabase
+        .from('bookings')
+        .select(`*, passengers:booking_passengers(*)`)
+        .eq('id', originalBookingId)
+        .single();
+
+    if (error || !original) throw new Error("Booking not found for full PNR refund");
+
+    const timestamp = new Date().toISOString();
+
+    // 2. Mark ALL original passengers as "SPLIT"
+    for (const pax of original.passengers) {
+        if (['ISSUED', 'REISSUE'].includes(pax.ticket_status)) {
+            await supabase.from('booking_passengers')
+                .update({ ticket_status: 'SPLIT' })
+                .eq('id', pax.id);
+        }
+    }
+
+    // 3. Update parent booking financials: zero out since all passengers are split
+    await supabase.from('bookings')
+        .update({ fare: 0, selling_price: 0 })
+        .eq('id', originalBookingId);
+
+    // 4. Log the Full PNR Refund action on the parent booking
+    await supabase.from('booking_history').insert([{
+        booking_id: originalBookingId,
+        action: 'FULL_PNR_REFUND',
+        previous_status: original.ticket_status,
+        new_status: 'REFUNDED',
+        details: `Full PNR refund: all ${original.passengers.length} passenger(s) refunded. Partner refund: ${totalRefundPartner}, Customer refund: ${totalRefundCustomer}.`,
+        created_at: timestamp
+    }]);
+
+    // 5. Reverse financial transactions for the FULL booking
+    const totalOriginalCost = original.passengers.reduce((sum: number, p: any) => sum + (Number(p.cost_price) || 0), 0);
+    const totalOriginalSell = original.passengers.reduce((sum: number, p: any) => sum + (Number(p.sale_price) || 0), 0);
+
+    if (original.issued_partner_id) {
+        const { data: partner } = await supabase.from('issued_partners').select('balance').eq('id', original.issued_partner_id).single();
+        if (partner) {
+            await supabase.from('issued_partners').update({ balance: Number(partner.balance) + totalRefundPartner }).eq('id', original.issued_partner_id);
+            await supabase.from('credit_transactions').insert([{
+                issued_partner_id: original.issued_partner_id,
+                amount: totalRefundPartner,
+                transaction_type: 'REFUND',
+                description: `Full PNR Refund for PNR ${original.pnr} (${original.passengers.length} passengers)`,
+                reference_id: originalBookingId,
+                created_at: new Date(refundDate).toISOString()
+            }]);
+        }
+    }
+
+    if (original.booking_source === 'AGENT' && original.agent_id) {
+        const { data: agent } = await supabase.from('agents').select('balance').eq('id', original.agent_id).single();
+        if (agent) {
+            // Refund: agent owes less money, so their balance goes UP (debt reduced)
+            await supabase.from('agents').update({ balance: Number(agent.balance) + totalRefundCustomer }).eq('id', original.agent_id);
+            await supabase.from('credit_transactions').insert([{
+                agent_id: original.agent_id,
+                amount: totalRefundCustomer,
+                transaction_type: 'REFUND',
+                description: `Full PNR Refund for PNR ${original.pnr} (${original.passengers.length} passengers)`,
+                reference_id: originalBookingId,
+                created_at: new Date(refundDate).toISOString()
+            }]);
+        }
+    }
+
+    // 6. Create the single CLONE booking with REFUNDED status containing ALL passengers
+    const clonePassengers: PassengerDetail[] = original.passengers.map((p: any, index: number) => {
+        const paxRefund = passengerRefunds?.[index];
+        const refundCost = paxRefund?.refund_amount_partner ?? Number(p.cost_price);
+        const refundSell = paxRefund?.refund_amount_customer ?? Number(p.sale_price);
+
+        return {
+            passenger_id: p.passenger_id,
+            pax_type: p.pax_type as any,
+            title: p.title,
+            first_name: p.first_name,
+            surname: p.surname,
+            ticket_number: p.ticket_number,
+            passport_number: p.passport_number,
+            passport_expiry: p.passport_expiry,
+            phone_number: p.phone_number,
+            contact_info: p.contact_info,
+            sale_price: refundSell,
+            cost_price: refundCost,
+            ticket_status: 'REFUNDED' as const,
+            refund_amount_partner: refundCost,
+            refund_amount_customer: refundSell,
+            refund_date: refundDate,
+        };
+    });
+
+    const newBookingData: BookingFormData = {
+        pnr: original.pnr, // Same PNR — CLONE bookings skip the duplicate check
+        airline: original.airline,
+        entry_date: refundDate,
+        departure_date: original.departure_date,
+        return_date: original.return_date,
+        origin: original.origin,
+        destination: original.destination,
+        agent_id: original.agent_id,
+        booking_source: original.booking_source,
+        issued_partner_id: original.issued_partner_id,
+        booking_type: 'CLONE',
+        ticket_status: 'REFUNDED',
+        ticket_issued_date: original.ticket_issued_date,
+        advance_payment: 0,
+        platform: original.platform,
+        payment_status: original.payment_status,
+        payment_method: original.payment_method,
+        refund_date: refundDate,
+        actual_refund_amount: totalRefundPartner,
+        customer_refund_amount: totalRefundCustomer,
+        currency: original.currency || 'EUR',
+        fare: totalRefundPartner,
+        selling_price: totalRefundCustomer,
+        parent_booking_id: originalBookingId,
+        passengers: clonePassengers
     };
 
     await createBooking(newBookingData);

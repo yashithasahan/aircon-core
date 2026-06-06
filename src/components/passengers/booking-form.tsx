@@ -170,16 +170,20 @@ const bookingFormSchema = z.object({
         }
 
         if (data.booking_type !== 'CLONE' && (pax.ticket_status === 'VOID' || pax.ticket_status === 'REFUNDED')) {
-            // Also need to check if the ticket was ALREADY voided/refunded. We only require it for NEW splits.
-            // But superRefine only sees current data, so we enforce it anytime they submit a VOID/REFUNDED passenger
-            // Ideally, we'd check if it was already SPLIT. Since SPLIT passengers remain SPLIT (they don't change to VOID here),
-            // any passenger with status 'VOID' or 'REFUNDED' in a master booking must be a newly generated split.
-            if (!pax.clone_pnr || pax.clone_pnr.trim() === '') {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: "New Clone PNR is required to Split this ticket",
-                    path: ["passengers", index, "clone_pnr"]
-                });
+            // Detect FULL PNR REFUND: if ALL passengers are REFUNDED, clone_pnr is NOT required
+            // (the backend handles this via refundEntirePnr() which creates a single CLONE booking)
+            const allPassengersRefunded = data.passengers.every(p => p.ticket_status === 'REFUNDED');
+
+            // Only require clone_pnr for INDIVIDUAL splits (not all passengers same status)
+            // or for VOID tickets (those always need a clone PNR)
+            if (!allPassengersRefunded || pax.ticket_status === 'VOID') {
+                if (!pax.clone_pnr || pax.clone_pnr.trim() === '') {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        message: "New Clone PNR is required to Split this ticket",
+                        path: ["passengers", index, "clone_pnr"]
+                    });
+                }
             }
         }
     });
@@ -561,11 +565,23 @@ export function BookingForm({ passengers, agents = [], issuedPartners = [], plat
                                     // Auto-update all passengers status
                                     const currentPassengers = getValues("passengers");
                                     if (currentPassengers) {
-                                        currentPassengers.forEach((_, index) => {
+                                        currentPassengers.forEach((pax, index) => {
                                             setValue(`passengers.${index}.ticket_status`, val as any);
                                             if (val === 'VOID') {
                                                 const originalDate = getValues('ticket_issued_date') || new Date().toISOString().split('T')[0];
                                                 setValue(`passengers.${index}.void_date`, originalDate);
+                                            }
+                                            if (val === 'REFUNDED') {
+                                                // Auto-fill refund amounts from cost/sale prices as defaults
+                                                const refundDate = getValues('refund_date') || new Date().toISOString().split('T')[0];
+                                                setValue(`passengers.${index}.refund_date`, refundDate);
+                                                // Only pre-fill if not already set
+                                                if (!pax.refund_amount_partner || Number(pax.refund_amount_partner) === 0) {
+                                                    setValue(`passengers.${index}.refund_amount_partner`, Number(pax.cost_price) || 0);
+                                                }
+                                                if (!pax.refund_amount_customer || Number(pax.refund_amount_customer) === 0) {
+                                                    setValue(`passengers.${index}.refund_amount_customer`, Number(pax.sale_price) || 0);
+                                                }
                                             }
                                         });
                                     }
