@@ -301,12 +301,13 @@ export async function updateBooking(id: string, formData: BookingFormData): Prom
 
             await refundEntirePnr(id, totalRefundPartner, totalRefundCustomer, refundDate, passengerRefunds);
 
-            // Mark all passengers as SPLIT so the rest of updateBooking handles them correctly
-            for (const p of formData.passengers) {
-                p.ticket_status = 'SPLIT';
-                p.refund_amount_partner = 0;
-                p.refund_amount_customer = 0;
-            }
+            // Revalidate paths and return early to prevent the original booking from being modified
+            // (e.g. its status changed to REFUNDED) and to avoid duplicate PNR check errors.
+            revalidatePath('/dashboard');
+            revalidatePath('/dashboard/payments');
+            revalidatePath('/dashboard/analytics');
+            revalidatePath('/dashboard/reports');
+            return {};
         } else {
             // INDIVIDUAL SPLITS — existing per-passenger clone flow
             for (let i = 0; i < formData.passengers.length; i++) {
@@ -1773,7 +1774,7 @@ export async function refundEntirePnr(
     });
 
     const newBookingData: BookingFormData = {
-        pnr: original.pnr, // Same PNR — CLONE bookings skip the duplicate check
+        pnr: `${original.pnr}-RFND`, // Append -RFND so it's clearly a clone
         airline: original.airline,
         entry_date: refundDate,
         departure_date: original.departure_date,
