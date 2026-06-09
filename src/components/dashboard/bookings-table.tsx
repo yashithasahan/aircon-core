@@ -83,10 +83,20 @@ export function BookingsTable({ bookings, passengers = [], agents = [], issuedPa
                     ) : (
                         bookings.map(booking => {
                             // Calculate aggregates if not already summed
-                            // Assuming backend returns totals in booking.fare/selling_price for the whole booking
+                            // Assuming backend returns totals in booking.fare/selling_price for the whole booking,
+                            // but for split/refunded parents, we show the gross amount before deductions to match details page.
                             const paxCount = booking.passengers?.length || 0;
                             const status = booking.ticket_status || 'PENDING';
-                            const profit = (booking.selling_price || 0) - (booking.fare || 0);
+
+                            const displayFare = (booking.passengers && booking.passengers.length > 0)
+                                ? booking.passengers.reduce((sum: number, p: any) => sum + (Number(p.cost_price) || 0), 0)
+                                : (booking.fare || 0);
+
+                            const displaySelling = (booking.passengers && booking.passengers.length > 0)
+                                ? booking.passengers.reduce((sum: number, p: any) => sum + (Number(p.sale_price) || 0), 0)
+                                : (booking.selling_price || 0);
+
+                            const profit = displaySelling - displayFare;
 
                             // Get first passenger name correctly
                             const firstPax = booking.passengers && booking.passengers.length > 0 ? booking.passengers[0] : null;
@@ -153,8 +163,8 @@ export function BookingsTable({ bookings, passengers = [], agents = [], issuedPa
                                     </TableCell>
                                     <TableCell className="text-xs">{booking.platform || '-'}</TableCell>
                                     <TableCell className="text-xs">{booking.airline || '-'}</TableCell>
-                                    <TableCell className="text-right text-slate-500 text-xs">{(booking.fare || 0).toFixed(2)}</TableCell>
-                                    <TableCell className="text-right text-xs">{(booking.selling_price || 0).toFixed(2)}</TableCell>
+                                    <TableCell className="text-right text-slate-500 text-xs">{displayFare.toFixed(2)}</TableCell>
+                                    <TableCell className="text-right text-xs">{displaySelling.toFixed(2)}</TableCell>
                                     <TableCell className="text-right font-medium text-green-600 dark:text-green-400 text-xs">
                                         {profit.toFixed(2)}
                                     </TableCell>
